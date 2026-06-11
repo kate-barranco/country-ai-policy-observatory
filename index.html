@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Civic AI Policy Observatory</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<style>
+:root {
+  --bg: #f5f3ee;
+  --surface: #ffffff;
+  --border: #e0dbd2;
+  --text: #1a1814;
+  --muted: #6b6560;
+  --accent: #f0c040;
+  --nav-bg: #14120f;
+  --c-permissive: #22c55e;
+  --c-guardrails: #84cc16;
+  --c-approval: #eab308;
+  --c-risk: #f97316;
+  --c-restrictive: #ef4444;
+  --c-moratorium: #a855f7;
+  --c-no-policy: #e5e2db;
+  --c-pending: #c8c4bc;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: 'Newsreader', Georgia, serif;
+  background: var(--bg);
+  color: var(--text);
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-rows: 44px 1fr;
+}
+
+/* HEADER */
+header {
+  grid-column: 1/-1;
+  background: var(--nav-bg);
+  color: #f5f3ee;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 12px;
+  z-index: 200;
+  border-bottom: 1px solid #2a2720;
+}
+.h-title { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; }
+.h-sep { color: #3a3630; }
+.h-meta { font-family: 'Syne', sans-serif; font-size: 10px; color: #7a7570; letter-spacing: .05em; }
+.h-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.btn {
+  font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; padding: 4px 10px;
+  border: 1px solid; cursor: pointer; transition: all .15s; background: transparent;
+}
+.btn-ghost { color: #7a7570; border-color: #3a3630; }
+.btn-ghost:hover { color: #f5f3ee; border-color: #f5f3ee; }
+.btn-accent { background: var(--accent); color: var(--text); border-color: var(--accent); }
+.btn-accent:hover { background: #e6b800; }
+.btn-sm { padding: 3px 8px; font-size: 9px; }
+
+/* NAV */
+nav {
+  background: var(--nav-bg);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 6px 0; gap: 2px; z-index: 100;
+}
+.nav-item {
+  width: 44px; height: 44px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; cursor: pointer; border-radius: 3px;
+  color: #5a5550; font-family: 'Syne', sans-serif;
+  font-size: 7.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  transition: all .15s;
+}
+.nav-item:hover { color: #f5f3ee; background: rgba(255,255,255,.07); }
+.nav-item.active { color: var(--accent); }
+.nav-item svg { width: 16px; height: 16px; }
+
+/* MAIN */
+main { position: relative; overflow: hidden; }
+.view { position: absolute; inset: 0; display: none; overflow: hidden; }
+.view.active { display: flex; }
+
+/* MAP VIEW */
+#map-view { flex-direction: row; }
+.map-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.map-toolbar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 8px 14px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap;
+}
+.lens-label { font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.lens-btns { display: flex; gap: 3px; flex-wrap: wrap; }
+.lens-btn {
+  font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 600; letter-spacing: .04em;
+  padding: 3px 9px; border: 1px solid var(--border); background: transparent; cursor: pointer;
+  border-radius: 20px; color: var(--muted); transition: all .15s;
+}
+.lens-btn:hover { border-color: var(--text); color: var(--text); }
+.lens-btn.active { background: var(--text); color: #f5f3ee; border-color: var(--text); }
+.map-wrap { flex: 1; position: relative; overflow: hidden; background: #edeae4; }
+#map-svg { width: 100%; height: 100%; }
+.county { stroke: #d8d4cc; stroke-width: .3; cursor: default; }
+.county.has-policy { cursor: pointer; }
+.county.has-policy:hover { stroke: var(--text); stroke-width: 1.5; opacity: .85; }
+.state-borders { fill: none; stroke: #c8c4bc; stroke-width: .7; pointer-events: none; }
+.nation-border { fill: none; stroke: #b8b4ac; stroke-width: 1.2; pointer-events: none; }
+
+.map-legend {
+  position: absolute; bottom: 12px; left: 12px;
+  background: rgba(255,255,255,.95); border: 1px solid var(--border);
+  padding: 10px 12px; backdrop-filter: blur(4px);
+  font-family: 'Syne', sans-serif; font-size: 9px; min-width: 130px;
+}
+.legend-head { font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.legend-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-weight: 500; }
+.l-swatch { width: 11px; height: 11px; border-radius: 2px; flex-shrink: 0; }
+
+.map-tooltip {
+  position: absolute; pointer-events: none; z-index: 300;
+  background: var(--nav-bg); color: #f5f3ee;
+  padding: 10px 12px; font-family: 'Syne', sans-serif; font-size: 10px;
+  max-width: 220px; display: none; box-shadow: 0 4px 20px rgba(0,0,0,.3);
+}
+.tt-name { font-size: 13px; font-weight: 800; margin-bottom: 1px; }
+.tt-state { color: #9a9590; font-size: 9px; margin-bottom: 7px; }
+.tt-badge { display: inline-block; padding: 2px 8px; font-size: 9px; font-weight: 700; border-radius: 2px; margin-bottom: 6px; }
+.tt-text { font-family: 'Newsreader', serif; font-size: 11px; font-style: italic; color: #c8c4bc; line-height: 1.4; }
+
+/* DETAIL PANEL */
+#detail-panel {
+  width: 340px; flex-shrink: 0;
+  background: var(--surface); border-left: 1px solid var(--border);
+  display: none; flex-direction: column; overflow: hidden;
+}
+#detail-panel.open { display: flex; }
+.dp-header { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.dp-close { float: right; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 16px; }
+.dp-county { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 17px; line-height: 1.1; }
+.dp-state { font-family: 'Syne', sans-serif; font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+.dp-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.dp-field { margin-bottom: 12px; }
+.dp-label { font-family: 'Syne', sans-serif; font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.dp-value { font-size: 12.5px; line-height: 1.5; }
+.posture-badge {
+  display: inline-block; padding: 2px 9px; font-family: 'Syne', sans-serif;
+  font-size: 9px; font-weight: 700; letter-spacing: .05em; border-radius: 2px;
+}
+.bss-bar { display: flex; gap: 3px; margin-top: 4px; }
+.bss-pip { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
+.bss-pip.on { background: #ef4444; }
+.dp-link { font-family: 'Syne', sans-serif; font-size: 9px; color: var(--muted); word-break: break-all; }
+.dp-link a { color: inherit; }
+.dp-actions { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 6px; flex-shrink: 0; }
+.dp-flag { font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: .05em; padding: 3px 9px; border-radius: 2px; display: inline-block; margin-top: 4px; }
+.flag-weld { background: #fef08a; color: #713f12; }
+.flag-warn { background: #fecaca; color: #7f1d1d; }
+.flag-info { background: #dbeafe; color: #1e3a5f; }
+
+/* DASHBOARD */
+#dashboard-view { flex-direction: column; overflow-y: auto; padding: 20px; gap: 18px; background: var(--bg); }
+.dash-section-title { font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); padding: 14px; }
+.stat-n { font-family: 'Syne', sans-serif; font-size: 34px; font-weight: 800; line-height: 1; }
+.stat-l { font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.chart-box { background: var(--surface); border: 1px solid var(--border); padding: 14px; }
+.chart-title { font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-family: 'Syne', sans-serif; font-size: 10px; }
+.bar-label { min-width: 130px; font-weight: 500; color: var(--muted); font-size: 9px; letter-spacing: .03em; }
+.bar-track { flex: 1; height: 8px; background: var(--border); border-radius: 1px; }
+.bar-fill { height: 100%; border-radius: 1px; transition: width .4s; }
+.bar-val { min-width: 24px; font-weight: 700; font-size: 10px; }
+
+/* TIMELINE */
+#timeline-view { flex-direction: column; overflow-y: auto; padding: 20px; background: var(--bg); }
+.tl-year-block { margin-bottom: 28px; }
+.tl-year-head { font-family: 'Syne', sans-serif; font-size: 32px; font-weight: 800; color: var(--border); border-bottom: 2px solid var(--border); padding-bottom: 8px; margin-bottom: 10px; }
+.tl-entry {
+  display: flex; gap: 14px; padding: 10px 8px;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+  transition: background .1s;
+}
+.tl-entry:hover { background: var(--surface); }
+.tl-date { font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 600; color: var(--muted); min-width: 88px; padding-top: 2px; }
+.tl-info { flex: 1; }
+.tl-name { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+.tl-bottom { font-size: 12px; color: var(--muted); font-style: italic; line-height: 1.4; }
+
+/* COMPARE */
+#compare-view { flex-direction: column; overflow: hidden; padding: 16px; gap: 10px; background: var(--bg); }
+.compare-controls { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+#compare-select {
+  font-family: 'Syne', sans-serif; font-size: 11px; padding: 6px 8px;
+  border: 1px solid var(--border); background: var(--surface); flex: 1; max-width: 500px;
+}
+.compare-wrap { flex: 1; overflow: auto; }
+.compare-table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+.compare-table th {
+  background: var(--nav-bg); color: #f5f3ee;
+  font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; padding: 9px 10px;
+  text-align: left; position: sticky; top: 0; z-index: 10; white-space: nowrap;
+}
+.compare-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; max-width: 180px; }
+.compare-table tr:hover td { background: #faf8f3; }
+.compare-table .row-label {
+  font-family: 'Syne', sans-serif; font-size: 8.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  background: var(--bg); min-width: 120px; position: sticky; left: 0; z-index: 5;
+}
+.compare-table .divergent { background: #fffbeb !important; }
+.diff-summary { font-family: 'Syne', sans-serif; font-size: 10px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); padding: 8px 12px; flex-shrink: 0; }
+
+/* PATTERNS */
+#patterns-view { flex-direction: column; overflow-y: auto; padding: 20px; background: var(--bg); gap: 12px; max-width: 760px; }
+.insight-card { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--text); padding: 14px 16px; }
+.insight-card.hi { border-left-color: var(--accent); }
+.insight-card.warn { border-left-color: #ef4444; }
+.insight-card.info { border-left-color: #60a5fa; }
+.insight-head { font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+.insight-body { font-size: 13px; line-height: 1.6; }
+.insight-body strong { font-weight: 600; }
+
+/* DISCOVERY */
+#discovery-view { flex-direction: column; overflow: hidden; }
+.disc-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+.disc-tab {
+  font-family: 'Syne', sans-serif; font-size: 9.5px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; padding: 9px 13px;
+  cursor: pointer; border-bottom: 2px solid transparent; color: var(--muted);
+  transition: all .15s;
+}
+.disc-tab:hover { color: var(--text); }
+.disc-tab.active { color: var(--text); border-bottom-color: var(--text); }
+.disc-body { flex: 1; overflow: auto; }
+.disc-panel { display: none; padding: 18px; }
+.disc-panel.active { display: block; }
+
+/* ADD POLICY */
+#add-view { flex-direction: column; overflow-y: auto; padding: 20px; background: var(--bg); gap: 14px; max-width: 700px; }
+.form-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 800; }
+.form-subtitle { font-size: 13px; color: var(--muted); font-style: italic; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.f-field { display: flex; flex-direction: column; gap: 4px; }
+.f-field.full { grid-column: 1/-1; }
+.f-label { font-family: 'Syne', sans-serif; font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.f-input, .f-select, .f-textarea {
+  font-family: 'Newsreader', serif; font-size: 13px;
+  padding: 7px 9px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); width: 100%;
+}
+.f-input:focus, .f-select:focus, .f-textarea:focus { outline: 2px solid var(--text); outline-offset: -2px; }
+.f-textarea { resize: vertical; min-height: 64px; }
+.f-select { font-family: 'Syne', sans-serif; font-size: 11px; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* UTIL */
+.empty-state { font-family: 'Syne', sans-serif; font-size: 11px; color: var(--muted); font-style: italic; padding: 20px 0; }
+.tag { display: inline-block; font-family: 'Syne', sans-serif; font-size: 8.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="h-title">Civic AI Policy Observatory</div>
+  <div class="h-sep">—</div>
+  <div class="h-meta" id="h-count">0 counties tracked</div>
+  <div class="h-actions">
+    <button class="btn btn-ghost btn-sm" onclick="exportTSV()">Export TSV</button>
+    <button class="btn btn-accent btn-sm" onclick="switchView('add')">+ Add Policy</button>
+  </div>
+</header>
+
+<nav>
+  <div class="nav-item active" data-view="map" onclick="switchView('map')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3V6z"/><path d="M9 3v15M15 6v15"/></svg>
+    Map
+  </div>
+  <div class="nav-item" data-view="dashboard" onclick="switchView('dashboard')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+    Dash
+  </div>
+  <div class="nav-item" data-view="timeline" onclick="switchView('timeline')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    Time
+  </div>
+  <div class="nav-item" data-view="compare" onclick="switchView('compare')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18"/><rect x="13" y="3" width="8" height="18"/></svg>
+    Comp
+  </div>
+  <div class="nav-item" data-view="patterns" onclick="switchView('patterns')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
+    Lens
+  </div>
+  <div class="nav-item" data-view="discovery" onclick="switchView('discovery')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    Find
+  </div>
+  <div class="nav-item" data-view="add" onclick="switchView('add')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Add
+  </div>
+</nav>
+
+<main>
+
+<!-- MAP VIEW -->
+<div class="view active" id="map-view">
+  <div class="map-area">
+    <div class="map-toolbar">
+      <span class="lens-label">Color by</span>
+      <div class="lens-btns">
+        <button class="lens-btn active" data-lens="posture">Posture</button>
+        <button class="lens-btn" data-lens="policy_type">Policy Type</button>
+        <button class="lens-btn" data-lens="equity">Equity Language</button>
+        <button class="lens-btn" data-lens="resident">Resident-Facing</button>
+        <button class="lens-btn" data-lens="blind_spot">Blind Spot Score</button>
+        <button class="lens-btn" data-lens="domains">High-Risk Domains</button>
+        <button class="lens-btn" data-lens="year">Adoption Year</button>
+        <button class="lens-btn" data-lens="accountability">Accountability</button>
+      </div>
+    </div>
+    <div class="map-wrap">
+      <svg id="map-svg"></svg>
+      <div class="map-legend" id="map-legend"></div>
+      <div class="map-tooltip" id="map-tooltip"></div>
+    </div>
+  </div>
+  <div id="detail-panel">
+    <div class="dp-header">
+      <button class="dp-close" onclick="closeDetail()">✕</button>
+      <div class="dp-county" id="dp-county"></div>
+      <div class="dp-state" id="dp-state"></div>
+    </div>
+    <div class="dp-body" id="dp-body"></div>
+    <div class="dp-actions">
+      <button class="btn btn-ghost btn-sm" id="dp-edit-btn">Edit</button>
+      <button class="btn btn-ghost btn-sm" id="dp-link-btn">Source ↗</button>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD VIEW -->
+<div class="view" id="dashboard-view">
+  <div id="dash-inner" style="width:100%;"></div>
+</div>
+
+<!-- TIMELINE VIEW -->
+<div class="view" id="timeline-view">
+  <div id="tl-inner" style="width:100%;"></div>
+</div>
+
+<!-- COMPARE VIEW -->
+<div class="view" id="compare-view">
+  <div class="compare-controls">
+    <select id="compare-select" multiple size="3">
+    </select>
+    <button class="btn btn-ghost" onclick="renderCompare()">Compare Selected</button>
+    <button class="btn btn-ghost btn-sm" onclick="exportCompare()">Export TSV</button>
+  </div>
+  <div class="diff-summary" id="diff-summary"></div>
+  <div class="compare-wrap">
+    <div id="compare-table-wrap"></div>
+  </div>
+</div>
+
+<!-- PATTERNS VIEW -->
+<div class="view" id="patterns-view">
+  <div id="patterns-inner" style="width:100%;padding:20px;"></div>
+</div>
+
+<!-- DISCOVERY VIEW -->
+<div class="view" id="discovery-view">
+  <div class="disc-tabs">
+    <div class="disc-tab active" data-disc="blindspot">Civic Blind Spot</div>
+    <div class="disc-tab" data-disc="govgap">Governance Gaps</div>
+    <div class="disc-tab" data-disc="wave">Adoption Wave</div>
+    <div class="disc-tab" data-disc="similar">Most Similar</div>
+    <div class="disc-tab" data-disc="heatmap">Field Heatmap</div>
+  </div>
+  <div class="disc-body">
+    <div class="disc-panel active" id="disc-blindspot"></div>
+    <div class="disc-panel" id="disc-govgap"></div>
+    <div class="disc-panel" id="disc-wave"></div>
+    <div class="disc-panel" id="disc-similar"></div>
+    <div class="disc-panel" id="disc-heatmap"></div>
+  </div>
+</div>
+
+<!-- ADD POLICY VIEW -->
+<div class="view" id="add-view">
+  <div id="add-inner"></div>
+</div>
+
+</main>
+
+<script>
+// ─── SEED DATA ────────────────────────────────────────────────────────────────
+const SEED_DATA = [
+  {fips:"01073",county_name:"Jefferson",state:"Alabama",title:"Jefferson AI Policy",url:"https://www.jccal.org/DocumentCenter/View/1057/Acceptable-Artificial-Intelligence-AI-Usage-Rule-PDF?bidId=",adoption_date:"2025-04-22",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Employees may use approved AI tools; IT maintains approved list; prohibited uses are enumerated but general use within guardrails is allowed.",coverage:"Applies to all employees with access to county data and systems; no explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Sharing PII or confidential data with AI tools; using AI for final decisions on legal matters without human review; generating deepfakes or deceptive content; election-related content; discriminatory or defamatory content; violating privacy laws.",key_requirements:"Use only IT-approved AI tools; disclose AI-generated content to supervisor; employees are accountable for AI-generated work product; violations subject to disciplinary action up to termination.",high_risk_domains:"Legal decisions, Elections (election-related content prohibited), Personnel decisions",equity_bias_language:"Prohibited uses include discriminatory content; 'Ethical AI' defined in policy, but no substantive bias assessment or equity framework described.",accountability:"Employees personally responsible for AI-generated content; IT maintains approved tools list; disciplinary process up to termination for violations; no named AI oversight officer or board.",bottom_line:"Jefferson County's HR rule focuses on data security and employee conduct guardrails, with prohibited uses covering legal decisions, deepfakes, and election-related content. No resident-facing AI provisions. Most distinctive finding: election-related content is flatly prohibited — one of the more explicit election integrity provisions at county level."},
+  {fips:"02100",county_name:"Haines",state:"Alaska",title:"Haines AI Policy",url:"https://www.hainesalaska.gov/media/75666",adoption_date:"2024-03-06",policy_type:"Administrative / Executive Policy",posture:"Approval-based",posture_notes:"Explicit prior permission required before any AI tool use on Borough devices or for Borough business; each new tool must be individually approved by Borough IT.",coverage:"All employees, contractors, and third-party entities; no explicit coverage of resident-facing services or constituent-affecting automated decisions.",key_prohibitions:"Using any AI tool without explicit prior permission; providing sensitive information to AI tools without explicit authorization; modifying or manipulating AI tools.",key_requirements:"Explicit prior permission for every AI tool use; IT approval required for each new tool before use; documentation of AI use; human oversight required before binding decisions; no sensitive data in AI tools without authorization.",high_risk_domains:"Binding decisions (human oversight required); sensitive information handling",equity_bias_language:"None",accountability:"Employees must document AI use; violations subject to disciplinary action; Borough IT is approval authority; no dedicated AI oversight role named.",bottom_line:"Haines Borough adopts the most restrictive pre-approval posture among Alaskan counties: every AI tool requires explicit prior permission and individual IT approval, making AI use opt-in by exception. No equity language, no resident-facing provisions. Most distinctive finding: blanket prior-permission requirement is more restrictive than standard approved-list models."},
+  {fips:"02110",county_name:"Juneau",state:"Alaska",title:"Juneau AI Policy",url:"https://juneau.org/index.php?gf-download=2026%2F03%2F26-02-Generative-Artificial-Intelligence-Use-Policy.pdf&form-id=25&field-id=4&entry-id=123303",adoption_date:"2026-03-20",policy_type:"Administrative / Executive Policy",posture:"Approval-based",posture_notes:"IT Director must review and approve all generative AI tools before use; employees may use approved tools with prior approval for enumerated tasks; City Manager has final policy authority.",coverage:"All CBJ employees and volunteers; AI-derived work may constitute public record; no explicit resident-facing AI provisions, but public records implication touches constituent interests.",key_prohibitions:"Using non-approved AI tools; uploading confidential, sensitive, or PII data without IT Director and City Manager vetting; using AI to make final decisions on policy, personnel, legal interpretations, or financial transactions without human oversight.",key_requirements:"IT Director pre-approval of all tools and maintenance of approved list; employees must review AI output for accuracy, gender and racial bias, privacy, copyright, ethics, and legal compliance; AI-generated work treated as potential public record.",high_risk_domains:"Policy decisions, Personnel matters, Legal interpretations, Financial transactions, Public records",equity_bias_language:"Employees explicitly required to review AI output for gender and racial bias as part of standard professional judgment — one of the more specific bias-review mandates among comparable county policies.",accountability:"IT Director approves tools; City Manager approves policy; employees personally accountable for AI work product; public records obligation creates external accountability vector.",bottom_line:"Juneau explicitly names gender and racial bias as required review criteria for all AI-generated content, treats AI work as potential public records, and assigns clear dual authority (IT Director + City Manager). Most distinctive finding: the explicit mandate to review for gender and racial bias is one of the most direct equity accountability provisions in the dataset."},
+  {fips:"02230",county_name:"Skagway",state:"Alaska",title:"Skagway AI Policy",url:"https://www.skagway.org/media/83911",adoption_date:"not listed",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"AI governance embedded within a broader IT acceptable use policy; no standalone AI framework; public records disclosure requirement applies to all communications including AI-generated content.",coverage:"All employees, contractors, vendors, consultants, and volunteers using MOS-owned devices and systems; BYOD data subject to public records disclosure; no explicit resident-facing AI or automated decision provisions.",key_prohibitions:"No AI-specific prohibitions identified; general IT AUP prohibitions apply.",key_requirements:"Compliance with Alaska Public Records Act (Title 40, Chapter 25); data retention per SMC 3.20; annual IT Governance Committee policy review; Alaska Technical Solutions (ATS) enforces policy.",high_risk_domains:"Public records compliance (all communications potentially disclosable); BYOD data retention",equity_bias_language:"None",accountability:"IT Governance Committee reviews annually; Alaska Technical Solutions (ATS) is enforcement authority; public records law provides external accountability.",bottom_line:"Skagway has no standalone AI policy; AI governance is absorbed into a general IT acceptable use policy with no AI-specific provisions. The thinnest AI governance framework in the Alaska group. Most distinctive finding: absence of any dedicated AI policy despite AI being referenced suggests governance is incidental rather than intentional."},
+  {fips:"04003",county_name:"Cochise",state:"Arizona",title:"Cochise AI Policy",url:"https://cochise.az.gov/DocumentCenter/View/25751/1810-Generative-Artificial-Intelligence-Policy-PDF",adoption_date:"2026-03-24",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"General AI use permitted with IT-approved tools; subject-matter expert final review is mandatory; enumerated prohibitions define the guardrails.",coverage:"All County departments, employees, contractors, and third parties accessing County data, systems, or services; no explicit resident-facing AI or constituent-affecting automated decision provisions.",key_prohibitions:"Sharing confidential data with AI; using AI for final decisions without human review; generating deepfakes or deceptive content; violating privacy laws; election-related content without approval; discriminatory content.",key_requirements:"Employee accountability for AI-generated decisions and materials; assessment of AI bias and hallucinations before reliance; identification and mitigation of human bias in AI use; mandatory final review by subject-matter experts; use only CCIT-approved tools.",high_risk_domains:"Legal decisions, Elections (requires approval), Privacy-sensitive decisions",equity_bias_language:"Policy explicitly addresses both AI system bias and human bias as distinct concerns — employees must identify and mitigate human bias when using AI, and all GAI systems are acknowledged to have inherent bias and accuracy issues requiring active assessment.",accountability:"Employees personally accountable for AI-generated decisions and materials; CCIT maintains approved tools list; subject-matter expert review is mandatory; no named AI oversight officer.",bottom_line:"Cochise stands out for its dual bias framework: requiring assessment of both AI-inherent bias and human bias as distinct analytical tasks. The mandatory subject-matter expert final review adds a structural check beyond generic human oversight language. Most distinctive finding: the dual bias framework (AI system bias + human bias) is more analytically precise than most comparable county policies."},
+  {fips:"04021",county_name:"Pinal",state:"Arizona",title:"Pinal AI Policy",url:"https://www.pinal.gov/DocumentCenter/View/27890/261-Use-of-Artificial-Intelligence",adoption_date:"2026-03-18",policy_type:"Administrative / Executive Policy",posture:"Approval-based",posture_notes:"Only tools on the County Intranet approved list are permitted; free AI systems are explicitly prohibited; election-related use is categorically prohibited.",coverage:"All Pinal County employees, contractors, and individuals using AI tools in a professional capacity; disclosure requirements for AI-generated public communications touch constituent-facing outputs; no explicit automated decision or resident-facing service provisions.",key_prohibitions:"Use of any AI tool not on the approved list; use of free AI systems (explicitly prohibited); using AI in connection with certified election equipment or processes; generating or analyzing election-related content that could interfere with election integrity; sharing PII without data security compliance.",key_requirements:"Use only IT-approved tools from County Intranet list; supervisor notification for AI incidents; disclosure of AI-generated content in public communications; data security compliance for PII.",high_risk_domains:"Elections (AI barred from certified election equipment or processes), Public communications, PII handling",equity_bias_language:"None",accountability:"Supervisor notification required for incidents; IT Services maintains approved list; public communications disclosure creates constituent-facing transparency; no named AI oversight officer.",bottom_line:"Pinal County has the most explicit and categorical election integrity provision: AI is flatly prohibited from use with certified election equipment or processes and from generating election content that could interfere with integrity. The explicit ban on free AI systems directly addresses shadow IT risk. Most distinctive finding: the election equipment prohibition is the strongest election-specific AI restriction in the entire dataset."},
+  {fips:"06001",county_name:"Alameda",state:"California",title:"Alameda AI Policy",url:"https://www.acgov.org/board/bos_calendar/documents/DocsAgendaReg_09_17_24/GENERAL%20ADMINISTRATION-4.pdf",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Posture inferred from Board of Supervisors agenda item context; full policy text unavailable (scanned PDF); assessment is provisional.",coverage:"Unknown — full policy text unavailable; Board agenda item suggests general administration AI policy scope.",key_prohibitions:"Unknown — full policy text unavailable.",key_requirements:"Unknown — full policy text unavailable.",high_risk_domains:"",equity_bias_language:"Unknown — full policy text unavailable.",accountability:"Unknown — full policy text unavailable; Board of Supervisors adoption implies legislative accountability.",bottom_line:"No policy text is available for Alameda County (scanned PDF). The record consists only of a September 2024 Board of Supervisors agenda item reference. No substantive analysis is possible from the available data. Most distinctive finding: this is one of only a handful of counties for which no policy content could be assessed."},
+  {fips:"06017",county_name:"El Dorado",state:"California",title:"El Dorado AI Policy",url:"https://www.eldoradocounty.ca.gov/files/assets/county/v/2/documents/government/bos/agendas/2024/nov-19-2024/item-24.pdf",adoption_date:"2026-01-27",policy_type:"Administrative / Executive Policy",posture:"Risk-tiered",posture_notes:"Policy establishes a governance structure with defined roles, risk assessment processes, and protected data categories (PII, HIPAA, CJIS, PHI, PCI); risk management framework implies tiered treatment based on data sensitivity.",coverage:"All AI systems used by or on behalf of the County; law enforcement (CJIS) and health data (HIPAA/PHI) explicitly identified as high-sensitivity categories; no explicit resident-facing AI provisions in available extract, but governance scope is broad. Law enforcement carved out via CJIS protected data classification.",key_prohibitions:"Use of protected data categories (PII, HIPAA, CJIS, PHI, PCI) outside governance controls; not fully specified in available extract.",key_requirements:"Defined roles and responsibilities for AI governance; guidance for purchasing, configuring, developing, operating, and maintaining AI systems; adherence to Guiding Principles; risk assessment and management processes for AI deployment.",high_risk_domains:"Criminal justice (CJIS explicitly named), Health information (HIPAA/PHI), Payment card data (PCI), PII",equity_bias_language:"None identified in available extract.",accountability:"Board of Supervisors adoption establishes legislative accountability; defined roles and responsibilities are a structural accountability feature; Guiding Principles referenced but not available in extract.",bottom_line:"El Dorado takes a governance-architecture approach — establishing roles, purchasing guidance, and risk management rather than a rules-based prohibitions approach. Explicitly incorporates CJIS criminal justice data standards. Most distinctive finding: explicit CJIS integration into AI governance framework, and law enforcement carve-out via data classification — a recurring gap."},
+  {fips:"06027",county_name:"Inyo",state:"California",title:"Inyo AI Policy",url:"https://www.inyocounty.us/sites/default/files/2025-12/Inyo%20County%20AI%20Approach.pdf",adoption_date:"not listed",policy_type:"IT Policy",posture:"Approval-based",posture_notes:"Only Information Services Department-approved tools are authorized; all prompts treated as publicly visible regardless of tool; resident-facing AI use carries informed consent requirement.",coverage:"All employees, contractors, and third parties using AI on behalf of Inyo County; explicitly covers resident-facing AI interactions (informed consent required); HIPAA, CJIS, IRS regulations, and CCPA compliance indicate coverage of sensitive constituent data contexts.",key_prohibitions:"Use of non-approved AI tools; inclusion of PII, PHI, or other sensitive information in prompts; violation of HIPAA, CJIS, IRS regulations, or CCPA.",key_requirements:"Use only Information Services-approved tools; register AI services with County email; treat all prompts as publicly visible; complete required training; residents must be informed when AI interacts with them.",high_risk_domains:"Resident-facing AI interactions (informed consent required), Health data (HIPAA/PHI), Criminal justice (CJIS), Tax data (IRS), Consumer privacy (CCPA)",equity_bias_language:"None explicitly stated, but informed consent provision for resident-facing AI and CCPA compliance provide implicit consumer protection for constituents.",accountability:"Information Services Department is approval authority; supervisor reporting for concerns; training compliance required; no named AI oversight officer; public visibility assumption for all prompts is a de facto transparency mechanism.",bottom_line:"Inyo County requires informed consent when AI interacts with residents — one of very few counties addressing resident-facing AI explicitly. The requirement to treat all prompts as publicly visible is a strong operational transparency norm. Most distinctive finding: the informed consent requirement for resident-facing AI interactions is among the most direct constituent protections in the dataset."},
+  {fips:"06041",county_name:"Marin",state:"California",title:"Marin AI Guidelines",url:"https://assets.marincounty.gov/marincounty-prod/public/2025-05/AI%20Guidelines%202025.pdf",adoption_date:"not listed",policy_type:"Guidelines / Best Practices (non-binding)",posture:"Permissive",posture_notes:"Non-binding guidelines covering all AI use (generative, enterprise, narrow AI); no enforcement mechanism; resident-facing and equity considerations addressed but not mandated.",coverage:"Broadest scope in this set: all instances where AI is used by the County in new or existing systems or updates, whether developed, purchased, subscribed to, or freely provided; explicitly covers AI in public-facing services.",key_prohibitions:"No hard prohibitions; guidelines identify risk areas (privacy, bias, lack of transparency) as concerns to address.",key_requirements:"Privacy and security review; transparency with public about AI use; equity and bias consideration; human oversight; vendor assessment before procurement; public records compliance.",high_risk_domains:"Public-facing services, Vendor-supplied AI systems, Privacy-sensitive applications",equity_bias_language:"Guidelines address bias and equity in AI deployment for both internal operations and public-facing services; equity is named as a core principle alongside privacy and transparency, but no structured bias assessment is required.",accountability:"No enforcement mechanism (explicitly non-binding); vendor assessment provision creates pre-procurement accountability; transparency requirement to the public creates reputational accountability; no named oversight officer.",bottom_line:"Marin County has the broadest definitional scope — covering all AI types across all deployment modes including freely provided tools — and explicitly includes transparency to the public. However, non-binding status makes all provisions aspirational. Most distinctive finding: widest gap between policy ambition and enforcement capacity in the dataset — most resident-facing provisions but legally unenforceable."},
+  {fips:"06043",county_name:"Mariposa",state:"California",title:"Mariposa AI Policy",url:"http://www.mariposacounty.gov/DocumentCenter/View/101161/Mariposa-County-AI-Policy",adoption_date:"2025-10-01",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Employees may use IT-approved AI tools for county business; use is enabled but gated by IT approval, data restrictions, and mandatory human review of outputs.",coverage:"Covers all county employees, contractors, and volunteers using county IT systems; no explicit coverage of resident-facing automated decisions stated in available text.",key_prohibitions:"No AI for final decisions without human review; no PII input into unapproved AI tools; no use of personal AI accounts for county business without approval; no AI-generated misleading or deceptive content.",key_requirements:"Use only IT-approved AI tools; verify AI output for accuracy before use; disclose AI use when producing official documents; complete required training; department heads ensure staff compliance.",high_risk_domains:"Final decision-making, Official documents, PII handling",equity_bias_language:"None",accountability:"Department heads responsible for staff compliance; IT department controls approved tools list.",bottom_line:"A standard employee acceptable-use policy enabling AI adoption within IT-controlled guardrails. Most important finding: prohibition on using AI for final decisions without human review, but the policy is silent on resident-facing services and equity considerations."},
+  {fips:"06045",county_name:"Mendocino",state:"California",title:"Mendocino AI Policy",url:"https://www.mendocinocounty.gov/home/showpublisheddocument/74893",adoption_date:"2025-11-18",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Productivity-oriented framing; AI use enabled for staff with approved tools, data restrictions, and human review requirements. Law enforcement operations carved out under separate protocols.",coverage:"Covers all county departments, employees, and contractors; resident-facing services implicated by disclosure and discriminatory-output prohibitions; law enforcement (Sheriff, DA) explicitly operates under separate protocols — a significant governance gap.",key_prohibitions:"No input of PII, PHI, or CJIS data into AI; no generating misleading content; no discriminatory AI outputs; no use of unapproved tools.",key_requirements:"Approved tools list required before use; human review of all AI-generated content; disclosure of AI use in official documents; data privacy protections enforced.",high_risk_domains:"Criminal justice / Law enforcement (carved out), PII / PHI handling",equity_bias_language:"Prohibition on discriminatory outputs listed among prohibited uses, but no structured bias assessment or disparate impact evaluation process described.",accountability:"Policy adopted by Minute Order of the Board; departmental compliance through standard policy framework; law enforcement self-governs under separate protocols.",bottom_line:"Notable primarily for its explicit law enforcement carve-out, which removes the highest-risk AI use domain from standard county oversight. Most important finding: the separate-protocols provision for the Sheriff and DA creates a governance gap precisely where AI bias risks are greatest."},
+  {fips:"06053",county_name:"Monterey",state:"California",title:"Monterey AI Policy",url:"https://www.countyofmonterey.gov/home/showpublisheddocument/139507",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Risk-tiered",posture_notes:"Strongest posture: explicit automated decision-making prohibition for resident-affecting decisions, mandatory bias assessment, transparency to residents about AI involvement, and security review gate for PII.",coverage:"Explicitly covers resident-facing services and automated decisions affecting members of the public; residents must be informed of AI involvement in decisions affecting them.",key_prohibitions:"No final automated decisions affecting members of the public without human review; no PII in AI systems without prior security review.",key_requirements:"Human oversight mandatory for all consequential decisions; residents informed of AI use affecting them; bias and disparate impact assessment required; approved tools process; transparency for resident-facing AI use.",high_risk_domains:"Automated decisions affecting the public, Resident-facing services, PII processing",equity_bias_language:"Substantive — policy explicitly requires assessment of bias and disparate impacts for AI systems; this is a procedural requirement, not merely a statement of intent.",accountability:"Board Policy Manual origin implies Board-level adoption; human oversight requirement creates individual accountability for consequential decisions.",bottom_line:"The most resident-protective California county policy in this set. The automated decision-making prohibition combined with mandatory bias assessment and resident notification distinguishes Monterey from purely employee-use frameworks. Most distinctive finding: only policy in this group explicitly requiring disparate impact assessment as a procedural step."},
+  {fips:"06061",county_name:"Placer",state:"California",title:"Placer AI Policy",url:"https://www.placer.ca.gov/DocumentCenter/View/102268/18A",adoption_date:"2026-02-17",policy_type:"IT Policy",posture:"Approval-based",posture_notes:"Security-first framework; AI tool acquisition and deployment gated by security risk assessments and data classification review; posture is about IT security controls, not use ethics.",coverage:"Covers county IT systems and AI tool acquisition countywide; no explicit language on resident-facing services or automated decisions affecting constituents in available text.",key_prohibitions:"Unapproved AI tools; data handling violations; AI tools without required security assessment.",key_requirements:"Security risk assessments for all AI tools; data classification requirements before AI use; access controls for AI systems; incident reporting procedures; vendor security requirements.",high_risk_domains:"AI tool acquisition and deployment (all require security review), Data handling involving sensitive classifications",equity_bias_language:"None",accountability:"Chief Information Officer and Chief Information Security Officer sponsor the policy; Board of Supervisors approval requested.",bottom_line:"A narrowly scoped IT security policy governing AI tool acquisition rather than AI use ethics or resident impact. Most distinctive finding: this is infrastructure governance, not civic AI governance — no mention of resident-facing automated decisions, equity, or human oversight requirements."},
+  {fips:"06067",county_name:"Sacramento",state:"California",title:"Sacramento AI Policy",url:"https://oce.saccounty.gov/content/oce/us/en/policies/information-technology/it-manual/ai-policy.html",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Risk-tiered",posture_notes:"Comprehensive governance structure with AI oversight committee, risk assessment process, equity assessment, and a resident opt-out mechanism — one of the most structured frameworks in the dataset.",coverage:"Covers all county departments and employees; explicitly covers resident-facing services and automated decisions affecting constituents; includes resident opt-out provision for certain AI-driven processes.",key_prohibitions:"Not explicitly enumerated in available text, but implied through risk assessment gate and data privacy/security requirements.",key_requirements:"AI oversight committee governance; risk assessment for all AI deployments; data privacy and security compliance; transparency requirements; employee training; vendor requirements; equity assessment for resident-affecting AI; human oversight for consequential decisions; resident opt-out mechanism.",high_risk_domains:"Consequential decisions affecting residents, Resident-facing services, AI deployments requiring risk assessment",equity_bias_language:"Substantive — equity assessment required for AI systems affecting residents; this is a structural governance requirement built into the deployment process.",accountability:"AI oversight committee provides institutional accountability; County Executive Office policy origin; vendor requirements extend accountability to third parties.",bottom_line:"Sacramento has the most institutionally mature governance structure among California counties, with an oversight committee, mandatory risk and equity assessments, and a resident opt-out mechanism. Most distinctive finding: the resident opt-out provision is the only mechanism in the dataset that gives constituents a direct way to exit AI-driven processes."},
+  {fips:"06075",county_name:"San Francisco",state:"California",title:"San Francisco GenAI Guidelines",url:"https://www.sf.gov/documents/42496/July2025-GenAI-Guidelines.pdf",adoption_date:"2025-07-07",policy_type:"Guidelines / Best Practices (non-binding)",posture:"Permissive with guardrails",posture_notes:"Framed as guidelines rather than binding policy; employee-responsibility model where individuals are accountable for AI output quality; approved tools required but overall tone is enabling.",coverage:"Covers all City and County personnel including contractors, consultants, volunteers, and vendors; disclosure requirements for public-facing communications implicitly cover resident-facing services; no explicit automated decision prohibition stated.",key_prohibitions:"No confidential, PII, PHI, or financial data input into AI tools; no use of unapproved AI tools for City business.",key_requirements:"Individual accountability for accuracy and quality of AI-assisted work; disclosure of AI use in official City communications and public-facing documents; bias review of AI output before use; City-approved tools only; procurement requirements; public records compliance for AI-generated content.",high_risk_domains:"Public-facing communications, Official City documents, Confidential data handling",equity_bias_language:"Bias mitigation guidance included — employees must review AI output for bias before use; additional bias guidance in supplemental sections; no structured impact assessment process described.",accountability:"Individual employees bear primary accountability; procurement process creates vendor accountability.",bottom_line:"San Francisco's guidelines enable broad GenAI adoption across a massive city government with an individual-responsibility model, but lack enforcement mechanisms. Most distinctive finding: as non-binding guidelines for a jurisdiction of San Francisco's size and service complexity, the absence of an enforcement structure is the most significant governance gap."},
+  {fips:"06077",county_name:"San Joaquin",state:"California",title:"San Joaquin AI Policy",url:"https://www.sjgov.org/docs/default-source/isd-docs/countywide-is-policies.pdf",adoption_date:"not listed",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"AI provisions embedded in a 189-page countywide information security policy; security and non-discrimination guardrails present but AI governance is not a standalone framework.",coverage:"Countywide operations including resident-facing services; protected class non-discrimination provision applies to all AI system use, implicitly covering decisions affecting constituents.",key_prohibitions:"AI systems shall not be used in ways that discriminate based on protected class characteristics (race, gender, disability, national origin, religion, sexual orientation, age); data classification violations; unauthorized vendor AI tools.",key_requirements:"Protected class non-discrimination compliance; vendor security requirements for AI tools; data classification requirements; access controls.",high_risk_domains:"Any AI use that could produce discriminatory outcomes by protected class, Resident-facing services, Vendor-supplied AI systems",equity_bias_language:"Substantive — strongest explicit non-discrimination provision in the California group: names specific protected classes and prohibits AI use that discriminates on those bases. Legal compliance framing.",accountability:"Embedded in countywide information security policy framework; standard IT compliance accountability structures apply.",bottom_line:"San Joaquin's protected class non-discrimination prohibition is the most explicitly enumerated equity provision across all California counties reviewed. Most distinctive finding: strong equity language buried in a general IT security document with no standalone AI governance structure or oversight committee to operationalize it."},
+  {fips:"06083",county_name:"Santa Barbara",state:"California",title:"Santa Barbara AI Policy",url:"https://www.countyofsb.org/asset/a9bb73d9-6eaf-435d-81f6-55be8e77972e",adoption_date:"2026-01-27",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"Board of Supervisors-approved IT administrative manual policy; guiding principles framework (transparency, accountability, fairness, privacy, security) combined with operational controls; equity assessment required for AI used in public services.",coverage:"All county departments and personnel; equity assessment requirement explicitly covers AI used in public services, indicating resident-facing services are in scope.",key_prohibitions:"No PII or confidential data in AI systems; violations of data security requirements; use of unapproved AI tools.",key_requirements:"Guiding principles compliance (transparency, accountability, fairness, privacy, security); approved AI tools list; human oversight for all significant decisions; equity assessment for AI used in public services; disclosure of AI-generated content; vendor requirements; employee training; incident reporting.",high_risk_domains:"Public services (equity assessment required), Significant decisions requiring human oversight, PII handling",equity_bias_language:"Substantive — equity assessment explicitly required for AI used in public services; fairness listed as a named guiding principle; more structured than a prohibition statement.",accountability:"Board of Supervisors is named Approver; IT department is named Owner; individual accountability through disclosure and human oversight requirements.",bottom_line:"Santa Barbara combines Board-level adoption with a principles-based framework and specific equity assessment requirement for public services AI. Most distinctive finding: Board of Supervisors named as explicit Approver gives this IT administrative policy stronger democratic legitimacy than most comparable county AI policies."},
+  {fips:"06087",county_name:"Santa Cruz",state:"California",title:"Santa Cruz AI Policy",url:"https://www2.santacruzcountyca.gov/personnel/vpolandproc/ProceduresManual/PM647620250514112700.pdf",adoption_date:"not listed",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Inferred from URL pattern (PM6476, Personnel Manual Procedure); full text unavailable — scanned PDF not parseable.",coverage:"Inferred to cover county employees; resident-facing services and automated decision coverage unknown due to unavailable text.",key_prohibitions:"Unknown — full text unavailable.",key_requirements:"Unknown — full text unavailable.",high_risk_domains:"",equity_bias_language:"Unknown — full text unavailable.",accountability:"Unknown — full text unavailable.",bottom_line:"Policy text could not be analyzed due to scanned PDF format. Classification as HR / Acceptable Use Rule is inferred from URL pattern (Personnel Manual PM6476). This record requires manual review before it can be reliably included in substantive analysis."},
+  {fips:"06097",county_name:"Sonoma",state:"California",title:"Sonoma AI Policy",url:"https://sonomacounty.gov/Main%20County%20Site/Administrative%20Support%20&%20Fiscal%20Services/Human%20Resources/AI-Use-Policy.pdf",adoption_date:"not listed",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Inferred from URL pointing to Human Resources division; likely an employee-facing HR policy governing acceptable AI use. Full text unavailable — no PDF in source folder.",coverage:"Inferred to cover county employees; resident-facing services and automated decision coverage unknown due to unavailable text.",key_prohibitions:"Unknown — full text unavailable.",key_requirements:"Unknown — full text unavailable.",high_risk_domains:"",equity_bias_language:"Unknown — full text unavailable.",accountability:"Unknown — full text unavailable.",bottom_line:"Policy text could not be analyzed — PDF not available in source folder. Classification inferred from HR division URL source. Requires direct document retrieval before reliable analysis."},
+  {fips:"08035",county_name:"Douglas",state:"Colorado",title:"Douglas AI Policy",url:"https://www.douglasco.gov/documents/artificial-intelligence-ai-policy.pdf/",adoption_date:"2025-12-15",policy_type:"Administrative / Executive Policy",posture:"Risk-tiered",posture_notes:"Four risk tiers (low, medium, high, critical) with escalating approval requirements; high and critical tiers require executive review.",coverage:"Covers all county AI deployments including public-facing services; equity review required for AI affecting public services; resident-facing and automated decisions explicitly in scope.",key_prohibitions:"Use of AI systems not cleared through risk tier process; handling PII without privacy impact assessment; deploying high-risk AI without executive approval.",key_requirements:"Risk-tiered classification and approval; privacy impact assessments for PII-touching systems; human oversight for high-risk decisions; equity review for public-service AI; vendor risk assessments; incident response; training; AI inventory/registry; public-facing transparency disclosures.",high_risk_domains:"High-risk and critical AI systems (executive approval required), PII-touching systems, Public-facing AI services",equity_bias_language:"Equity review required for AI systems affecting public services; equity is a formal checkpoint in the approval workflow, not merely aspirational language.",accountability:"AI Center of Excellence (aicoe@douglas.co.us) owns the policy; AI inventory/registry tracks all deployments; incident response procedures defined; executive approval required for high-risk systems.",bottom_line:"Douglas County's risk-tiered framework is structurally mature, with four distinct approval tracks, formal equity checkpoints, and a mandatory AI registry. The named AI Center of Excellence signals institutional commitment. Most distinctive finding: combination of risk tiering plus mandatory equity review for public-service AI creates a replicable governance scaffold."},
+  {fips:"08123",county_name:"Weld",state:"Colorado",title:"Weld AI Policy",url:"https://www.weld.gov/Government/Departments/Finance-and-Administration/AI-Policy",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Approved tools permitted broadly; high-risk AI triggers mandatory public disclosure obligations rather than prohibition.",coverage:"Covers all county AI use; explicitly covers resident-facing and high-risk AI affecting constituents; public registry requirement directly addresses impact on the public.",key_prohibitions:"Use of unapproved tools; inputting data that violates privacy requirements; deploying high-risk AI without discrimination risk disclosure.",key_requirements:"Approved tools list; public-facing website listing all high-risk AI systems (purpose, function, discrimination risk management); human oversight for consequential decisions; equity/bias assessments; employee training; vendor requirements.",high_risk_domains:"All AI systems classified as high-risk; systems with discrimination risk",equity_bias_language:"Substantive — discrimination risk management disclosures are a mandatory element of the public AI registry. The most operationalized anti-bias mechanism in the dataset: not just a prohibition but a required public disclosure.",accountability:"Mandatory public website listing all high-risk AI systems is the primary accountability mechanism — unique in the entire dataset.",bottom_line:"Weld County's mandatory public AI registry — requiring disclosure of what each high-risk system does, why it's used, and how discrimination risk is managed — is the strongest public transparency mechanism in the entire dataset. No other county requires a live, public-facing inventory with discrimination disclosures. Most distinctive finding: the gold standard for constituent-facing AI accountability — no peer policy matches it."},
+  {fips:"09140",county_name:"Naugatuck Valley",state:"Connecticut",title:"Naugatuck Valley AI Policy",url:"https://nvcogct.gov/wp-content/uploads/2026/02/04-Personnel-Policy-and-Employee-Manual-Adopted-December-2024-2.pdf",adoption_date:"2024-12-01",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Employees may use approved AI tools for work tasks; prohibitions focus on data inputs and prohibited output categories; no tiered risk structure.",coverage:"NVCOG employees only; no coverage of resident-facing services or automated decisions affecting constituents — policy is entirely internal HR-focused.",key_prohibitions:"Inputting sensitive or confidential data into AI tools; using AI to make final employment or benefit decisions; generating discriminatory content; inputting PII without authorization.",key_requirements:"Use only approved AI tools; verify and review all AI outputs; disclose AI use in work products; complete required training.",high_risk_domains:"Employment and benefit decisions (prohibited as sole AI decision)",equity_bias_language:"Prohibition on generating discriminatory content; prohibition on AI making final employment or benefit decisions. Framed as prohibited conduct rather than affirmative equity assessment.",accountability:"Embedded in employee handbook; disciplinary framework applies through standard HR mechanisms; no dedicated AI governance body named.",bottom_line:"As a regional council of governments rather than a county, NVCOG's policy is narrowly scoped to internal employee conduct with no constituent-facing provisions. Most distinctive finding: prohibition on AI making final employment or benefit decisions is a meaningful guardrail, but resident-facing AI and automated decisions affecting constituents are entirely outside scope."},
+  {fips:"11001",county_name:"District of Columbia",state:"District of Columbia",title:"DC AI Policy / Mayor's Order",url:"https://techplan.dc.gov/page/mayors-order-articulating-dc%E2%80%99s-artificial-intelligence-policy",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Expansive pro-adoption framing with equity and transparency values; strategic benchmarks rather than hard restrictions; governance bodies established by executive order.",coverage:"Broad public sector AI governance scope; equity and accountability values apply to government AI broadly; community engagement mechanism suggests constituent impact is in scope.",key_prohibitions:"Not specified in available text.",key_requirements:"Adherence to DC AI values (accountability, equity, transparency, privacy); progress against strategic benchmarks; AI Taskforce and AI Advisory Group participation; community engagement for AI governance.",high_risk_domains:"Not specifically enumerated; equity and transparency requirements imply application to public-service AI",equity_bias_language:"Equity is named as a core DC AI value; community engagement for governance suggests equity-centered process. Substantive implementation mechanisms not detailed in available text.",accountability:"AI Taskforce and AI Advisory Group established by Mayor's Order; CRITICAL: both bodies sunset December 31, 2026 with no stated renewal mechanism — a live governance cliff.",bottom_line:"DC's Mayor's Order establishes ambitious values-based AI governance with equity and transparency at the center. Most distinctive finding: both governance bodies (AI Taskforce and Advisory Group) sunset December 31, 2026 with no renewal provision — a governance cliff that could leave DC's AI framework unenforceable without legislative or executive action."},
+  {fips:"12075",county_name:"Levy",state:"Florida",title:"Levy AI Policy",url:"https://www.levycounty.org/DocumentCenter/View/815/HR-2025-71-Acceptable-Use-of-AI",adoption_date:"2024-12-01",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Approved tools permitted; human review required for all AI outputs; prohibitions focus on data handling and output categories; no risk tiering.",coverage:"Covers all county employees and contractors; no explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Inputting PII or confidential data into AI tools; uses not on approved list.",key_requirements:"Use only approved AI tools; human review required for all AI outputs; disclose AI use; complete training.",high_risk_domains:"",equity_bias_language:"None",accountability:"HR policy enforcement through standard disciplinary procedures; no dedicated AI governance body or registry.",bottom_line:"Levy County's policy is a standard HR acceptable use rule focused on employee conduct, data protection, and tool approval. No equity provisions and no coverage of AI affecting constituents. Most distinctive finding: one of the least protective county policies for residents in the dataset — entirely internal-facing."},
+  {fips:"12086",county_name:"Miami-Dade",state:"Florida",title:"Miami-Dade AI Policy",url:"https://www.miamidade.gov/global/comms-tech/technology/ai/ai-policy.page",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"County-wide policy with approved tools requirement, privacy and oversight guardrails, equity mentioned but not structurally enforced.",coverage:"Covers all county employees; equity considerations and transparency requirements suggest some coverage of resident-facing services; scope of automated decision coverage not specified.",key_prohibitions:"Use of unapproved AI tools; data privacy violations; generating AI content without transparency disclosures.",key_requirements:"Approved tools list; data privacy protections; human oversight; transparency in AI-generated content; vendor requirements for AI procurement; training; incident reporting.",high_risk_domains:"",equity_bias_language:"Equity considerations mentioned; not described as a formal checkpoint or assessment requirement — aspirational rather than procedural.",accountability:"IT governance structure; incident reporting mechanism; vendor requirements as procurement accountability.",bottom_line:"Miami-Dade has a comprehensive county-wide policy covering employees, procurement, and vendor requirements. Most distinctive finding: vendor requirements for AI procurement are a meaningful accountability mechanism absent from many peer policies, but equity provisions are aspirational rather than enforced."},
+  {fips:"13067",county_name:"Cobb",state:"Georgia",title:"Cobb AI Policy",url:"https://assets.cobbcounty.gov/files/2025-08/Information-Technology-Artificial-Intelligence-Acceptable-Use-Standards.pdf",adoption_date:"2025-08-01",policy_type:"IT Policy",posture:"Approval-based",posture_notes:"Only approved AI tools permitted; approval governed through IT governance structure; data classification requirements gate AI use; no risk tiering beyond data classification.",coverage:"Covers all Cobb County employees and contractors; disclosure requirements for AI-generated content in official communications suggests some resident-facing coverage; automated decision coverage not specified.",key_prohibitions:"Use of unapproved AI tools; inputting PII or confidential data without security vetting; generating discriminatory content; creating deceptive content; violating privacy.",key_requirements:"Use only approved AI tools; data classification and protection compliance; human review for significant AI outputs; disclosure of AI-generated content in official communications; training; vendor assessment for AI tools.",high_risk_domains:"",equity_bias_language:"Prohibition on generating discriminatory content. No affirmative equity assessment or bias testing requirement.",accountability:"IT governance structure with ITS Division Directors as approvers; Board of Commissioners as policy owner; vendor assessment process.",bottom_line:"Cobb County's IT-governed approval-based policy is technically sound with strong data classification requirements and vendor assessment but lacks risk tiering and affirmative equity mechanisms. Most distinctive finding: disclosure requirement for AI-generated content in official communications is a notable transparency provision for resident-facing outputs, but accountability sits entirely within IT governance."},
+  {fips:"66010",county_name:"Guam",state:"Guam",title:"Guam AI Use Policy",url:"https://otech.guam.gov/wp-otech-content/uploads/2025/01/OTECH-POL2025-001-AI-Use-Policy-for-GovGuam-Line-Agencies.pdf",adoption_date:"2025-01-22",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Approved use cases permitted across all line agencies; governance centralized in OTECH; prohibitions focus on sensitive data exposure; no risk tiering.",coverage:"Covers all Guam government line agencies; scope is territory-wide government operations; resident-facing AI coverage implied but not explicitly detailed.",key_prohibitions:"Exposing sensitive government data through AI systems; unapproved use cases.",key_requirements:"Use only approved AI use cases; data protection compliance; human oversight; training; governance through OTECH; incident reporting.",high_risk_domains:"",equity_bias_language:"None",accountability:"Office of Technology (OTECH) as central governance authority for all line agencies; incident reporting mechanism.",bottom_line:"Guam's territory-wide policy is notable for its centralized governance through a single technology office (OTECH) across all line agencies. Most distinctive finding: territory-wide centralized governance through a single technology authority is an organizational model distinct from county-level peer policies — no fragmentation across departments."},
+  {fips:"16055",county_name:"Kootenai",state:"Idaho",title:"Kootenai AI Policy",url:"https://www.kcgov.us/DocumentCenter/View/26664/19--Board-Approval-Request---Section-408---Generative-AI-Policy",adoption_date:"not listed",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"Policy appears to be a BOCC-approved amendment to existing Computer Use Policy (Section IV, Policy 425); specific provisions not available due to unreadable scanned PDF.",coverage:"Unknown — source document is a scanned PDF with no readable text.",key_prohibitions:"Unknown — text not available.",key_requirements:"Unknown — text not available; policy exists as an amendment to Computer Use Policy 425.",high_risk_domains:"",equity_bias_language:"Unknown — text not available.",accountability:"Board of County Commissioners (BOCC) approval documented; policy integrated into broader Computer Use Policy framework.",bottom_line:"Kootenai County's AI policy cannot be substantively analyzed due to unreadable scanned PDF. What is known: it is a BOCC-approved amendment to existing Computer Use Policy 425, suggesting incremental rather than standalone governance. Most distinctive finding: absence of readable policy text means no substantive provisions can be confirmed or evaluated."},
+  {fips:"17085",county_name:"Jo Daviess",state:"Illinois",title:"Jo Daviess AI Policy",url:"https://www.jodaviesscountyil.gov/DocumentCenter/View/859/Generative-AI-Policy-08-2024",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Approval-based",posture_notes:"GenAI tools must be on approved list with approval through IT or department head; framing emphasizes opportunity and efficiency alongside guardrails.",coverage:"Covers county employees; disclosure requirement for GenAI use in official documents suggests some resident-facing coverage; automated decisions affecting constituents not addressed.",key_prohibitions:"Inputting PII, confidential, or sensitive data into GenAI tools; generating discriminatory content; creating deceptive materials; violating copyright; exposing sensitive data; use of unapproved tools.",key_requirements:"Use only approved GenAI tools (approval via IT or department head); human review and verification of all GenAI outputs; disclose GenAI use in official documents; training; disciplinary consequences for violations.",high_risk_domains:"",equity_bias_language:"Prohibition on generating discriminatory content. No affirmative equity assessment, bias testing, or equity review process.",accountability:"IT department and department heads as approval authorities; disciplinary action for violations; no dedicated AI governance body or registry.",bottom_line:"Jo Daviess County's GenAI-specific policy focuses on generative tools used by employees rather than the full AI deployment lifecycle. Most distinctive finding: policy is limited to generative AI and employee use — no provisions for vendor-procured AI systems, automated decisions, or resident-facing applications."},
+  {fips:"19013",county_name:"Black Hawk",state:"Iowa",title:"Black Hawk AI Policy",url:"https://www.blackhawkcounty.iowa.gov/DocumentCenter/View/8310",adoption_date:"2025-09-01",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Employees may use approved AI tools; use is enabled but bounded by an approved tools list, mandatory human review, data restrictions, and disclosure requirements.",coverage:"Covers all county departments, employees, and contractors. No explicit mention of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Inputting PII, PHI, or confidential data into AI tools; generating discriminatory outputs; creating deceptive content; using unapproved tools.",key_requirements:"Use only approved tools; human review of all AI outputs; disclose AI use when relevant; complete required training; vendor requirements.",high_risk_domains:"Discriminatory outputs (prohibited), Deceptive content (prohibited)",equity_bias_language:"Policy explicitly names human rights, fairness, and equity as governing values and prohibits discriminatory AI outputs; no detailed bias-testing or disparate-impact assessment procedures specified.",accountability:"IT governance oversight; training requirements; vendor requirements; disciplinary implications implied by prohibited uses list.",bottom_line:"Black Hawk grounds its policy explicitly in human rights and fairness language — relatively strong normative framing for a county-level document. Most distinctive finding: explicit human rights and equity commitments are the most distinctive feature, though there are no procedures for assessing or auditing bias in deployed tools."},
+  {fips:"20113",county_name:"McPherson",state:"Kansas",title:"McPherson AI Policy",url:"https://www.mcphersoncountyks.us/DocumentCenter/View/7939/McPherson-County-Generative-AI-Policy",adoption_date:"not listed",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Inferred from filing as an adopted Acceptable Use policy for a small rural county; specific guardrails cannot be confirmed due to unavailable text.",coverage:"Unknown — full text not available. Likely covers county employees only.",key_prohibitions:"Unknown — source document is a scanned PDF with no extractable text.",key_requirements:"Unknown — source document is a scanned PDF with no extractable text.",high_risk_domains:"",equity_bias_language:"None confirmed — text unavailable.",accountability:"Unknown — text unavailable.",bottom_line:"No policy text could be extracted from the scanned PDF; all fields are inferred from the file name and county profile. Most distinctive finding: data gap — this county cannot be meaningfully scored or compared until the document is OCR-processed."},
+  {fips:"21111",county_name:"Jefferson",state:"Kentucky",title:"Jefferson (Louisville) AI Policy",url:"https://louisvilleky.gov/government/metro-technology-services/artificial-intelligence",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Approved-tools process, human oversight, and equity review indicate a structured permissive approach suited to a large urban metro government.",coverage:"Covers Louisville Metro Government broadly. Transparency requirements for AI in public services indicate explicit coverage of resident-facing services; equity considerations suggest attention to automated decisions affecting constituents.",key_prohibitions:"Inputting non-approved or sensitive data into AI; deploying AI in public services without transparency; unreviewed automated decisions (implied by human oversight requirement).",key_requirements:"Approved tools process; data privacy compliance; human oversight; transparency disclosures for public-facing AI; equity review; vendor assessment; training.",high_risk_domains:"Public-facing services (transparency requirement triggered), Procurement/vendor AI",equity_bias_language:"Equity considerations included; specifics of assessment methodology not detailed in available text.",accountability:"Metro Technology Services governance; vendor assessment; training program; transparency disclosures.",bottom_line:"As a large merged city-county government, Louisville Metro's policy is notably broader than most county-level policies, explicitly addressing AI in public-facing services and requiring resident-facing transparency. Most distinctive finding: explicit resident-facing transparency requirement combined with equity review is rare at county level — reflects the policy sophistication of a major metropolitan government."},
+  {fips:"23007",county_name:"Franklin",state:"Maine",title:"Franklin AI Policy",url:"https://www.franklincountymaine.gov/wp-content/uploads/2026/01/Personnel-Policy-AI-Addendum.pdf",adoption_date:"2025-11-14",policy_type:"HR / Acceptable Use Rule",posture:"Approval-based",posture_notes:"Employees may use AI tools only with supervisor approval; use is not freely permitted — each instance requires authorization.",coverage:"Covers county employees only via the Personnel Policy Handbook. No coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Inputting confidential or sensitive data; generating discriminatory content; violating privacy; personal use of AI during work hours.",key_requirements:"Supervisor approval before use; verify AI outputs for accuracy; disclose AI use when relevant to work product.",high_risk_domains:"",equity_bias_language:"Prohibits generating discriminatory content; no broader equity framework or bias assessment language.",accountability:"Supervisor approval as primary control mechanism; disclosure requirement; implied disciplinary exposure under existing HR policy framework.",bottom_line:"Franklin County takes the most conservative internal approach in this set by requiring supervisor approval for each AI use instance, embedded entirely within an HR handbook. Most distinctive finding: the per-instance supervisor approval gate is the most restrictive internal posture here, but the policy is entirely silent on any public or constituent-impact dimension."},
+  {fips:"24027",county_name:"Howard",state:"Maryland",title:"Howard AI Policy",url:"https://www.howardcountymd.gov/sites/default/files/2024-10/400.6%20Guidence%20for%20AI%20Use%20Policy.pdf",adoption_date:"2024-10-01",policy_type:"Guidelines / Best Practices (non-binding)",posture:"Permissive with guardrails",posture_notes:"Titled 'Guidance' and framed as written procedure with rules and guidelines; approved tools process and data protections apply, but advisory framing suggests limited enforceability.",coverage:"Covers county employees across departments. Equity considerations mentioned but extent of coverage for resident-facing services or automated decisions is not detailed.",key_prohibitions:"Inputting confidential or sensitive data into AI systems; using unapproved tools.",key_requirements:"Approved tools process; data protection; human review of AI outputs; disclosure; equity considerations; vendor assessment; training.",high_risk_domains:"",equity_bias_language:"Equity considerations mentioned; no detailed disparate-impact or bias-audit methodology described.",accountability:"Department of County Administration and Technology and Communication Services oversight; training; vendor assessment.",bottom_line:"Howard County's policy is notable for its early adoption date (October 2024) giving it one of the longer implementation runways in this cohort. Most distinctive finding: the guidance framing rather than a binding directive may limit enforceability and create compliance ambiguity — equity language is present but not operationalized."},
+  {fips:"24033",county_name:"Prince George's",state:"Maryland",title:"Prince George's AI Policy",url:"https://www.princegeorgescountymd.gov/sites/default/files/media-document/EO%203-2024%20Artificial%20Intelligence%20Use%20Policy.pdf",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Approval-based",posture_notes:"Issued as Executive Order EO 3-2024 — a binding administrative directive from the County Executive; posture details cannot be confirmed due to unavailable text. Full text not available due to scanned PDF.",coverage:"Unknown — full text not available. Executive orders typically bind county agencies and employees; resident-facing or constituent automated decision coverage cannot be confirmed.",key_prohibitions:"Unknown — source document is a scanned PDF with no extractable text.",key_requirements:"Unknown — source document is a scanned PDF with no extractable text.",high_risk_domains:"",equity_bias_language:"None confirmed — text unavailable.",accountability:"Unknown — text unavailable. Executive order form implies binding force on all county agencies.",bottom_line:"Prince George's County issued a formal Executive Order (EO 3-2024) on AI use — a higher-authority governance mechanism than most departmental guidance documents. Most distinctive finding: the executive order form implies binding force on all county agencies, but the inability to extract text makes substantive analysis impossible."},
+  {fips:"26115",county_name:"Monroe",state:"Michigan",title:"Monroe AI Policy",url:"https://co.monroe.mi.us/DocumentCenter/View/4502/811-Artificial-Intelligence-PDF",adoption_date:"2025-03-19",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"Housed in Information Security section; employees may use approved AI tools for productivity; use bounded by approved-tools list, data restrictions, human review, and disclosure requirements.",coverage:"Covers all county departments and employees. No explicit mention of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Using unapproved AI tools; inputting confidential or sensitive data; generating misleading content; using AI as the sole basis for final decisions without human review; violating data privacy.",key_requirements:"Approved tools only; no sensitive data in AI; human review of all outputs; disclose AI use; complete training; IT governance compliance.",high_risk_domains:"Final decision-making (prohibition on AI-only final decisions), Data privacy",equity_bias_language:"None — policy is framed entirely around information security and productivity; no equity or bias language present.",accountability:"IT governance structure; Information Security policy framework (Section 800); training requirements; disciplinary exposure implied.",bottom_line:"Monroe County's policy is the most purely IT-security-oriented in this cohort, with no equity or public-service framing. Most distinctive finding: complete absence of equity or bias language in a policy governing a full county workforce is a notable gap relative to peers — this is IT infrastructure governance, not civic AI governance."},
+  {fips:"26129",county_name:"Ogemaw",state:"Michigan",title:"Ogemaw AI Policy",url:"https://www.ocmi.us/wp-content/uploads/408_Acceptable_Use_of_AI_Policy.pdf",adoption_date:"2024-11-14",policy_type:"Ordinance / Resolution (legislatively adopted)",posture:"Permissive with guardrails",posture_notes:"Board resolution formally adopts the policy; employees may use AI for productivity and efficiency within defined guardrails including data restrictions, human review, and disclosure.",coverage:"Covers county employees. No explicit mention of resident-facing services or automated decisions affecting constituents; rural county with internal workforce focus.",key_prohibitions:"Inputting confidential county information into AI; using AI to make binding decisions without human review; violating data privacy; prohibited uses enforced through disciplinary action.",key_requirements:"Must not input confidential data; human review before binding decisions; verify AI output accuracy; disclose AI use; violations result in disciplinary action.",high_risk_domains:"Binding decisions (prohibition on AI-only binding decisions)",equity_bias_language:"None — no equity, bias, or fairness language in available text.",accountability:"Board resolution adoption provides legislative accountability; disciplinary action explicitly stated for violations — one of the clearest explicit enforcement mechanisms in this cohort.",bottom_line:"Ogemaw is a small rural Michigan county whose policy is distinctive for being formally adopted by Board resolution (giving it legislative weight) and explicitly naming disciplinary action for violations. Most distinctive finding: legislative adoption combined with explicit enforcement consequences makes this the most formally enforceable internal policy in the Michigan group, despite the small county context."},
+  {fips:"27163",county_name:"Washington",state:"Minnesota",title:"Washington AI Policy",url:"https://www.washingtoncountymn.gov/DocumentCenter/View/78486",adoption_date:"not listed",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"Policy explicitly frames itself as 'comprehensive, yet flexible' — designed to enable AI use while managing risk; approved tools, data classification, human oversight, and vendor requirements apply.",coverage:"Covers county employees and systems used on behalf of the county. Equity considerations for public-serving AI explicitly mentioned — coverage extends to resident-facing services and constituent-impact decisions.",key_prohibitions:"Using unapproved tools; inputting data beyond approved classification levels; deploying public-serving AI without equity review.",key_requirements:"Approved tools process; data classification and tiered protection; human oversight; transparency; vendor requirements; training; incident reporting; equity considerations for public-serving AI.",high_risk_domains:"Public-serving AI (equity considerations explicitly triggered), Vendor-supplied AI systems",equity_bias_language:"Equity considerations explicitly required for public-serving AI — directly connecting the policy to constituent impact rather than limiting it to internal workforce use.",accountability:"IT Policy governance structure; incident reporting requirement; vendor oversight; training program.",bottom_line:"Washington County, Minnesota stands out for explicitly scoping equity considerations to public-serving AI — directly connecting the policy to constituent impact. Most distinctive finding: the explicit equity requirement for public-serving AI is the most meaningful constituent-protection provision in this cohort."},
+  {fips:"30063",county_name:"Missoula",state:"Montana",title:"Missoula AI Policy",url:"https://www.missoulacounty.gov/media/mvodmhzi/artificial-intelligence-policy-1.pdf",adoption_date:"2025-07-08",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Structured governance approach enabling AI use across county operations; approved tools, data privacy, human oversight, equity and bias assessment, and incident reporting together form a layered guardrail system.",coverage:"Covers all county employees, contractors, and volunteers — broadest workforce scope. Equity and bias assessment provisions and transparency requirements indicate coverage of resident-facing services and constituent-impact decisions.",key_prohibitions:"Inputting private or sensitive data into AI; deploying AI without approved tools process; using AI without human oversight.",key_requirements:"Approved tools process; data privacy compliance; human oversight; transparency; equity and bias assessment; vendor requirements; training; incident reporting.",high_risk_domains:"Equity and bias assessment explicitly required, Vendor-supplied AI, Public-facing applications",equity_bias_language:"Explicit equity and bias assessment requirement — goes beyond a values statement to require active assessment, though methodology details are not provided. Most substantive equity provision in this cohort.",accountability:"County Administration governance; incident reporting mechanism; vendor requirements; training; values of accountability, fairness, and transparency formally stated.",bottom_line:"Missoula County combines explicit equity and bias assessment requirements with incident reporting, vendor oversight, and volunteer coverage — the most comprehensive governance structure in the Montana/Mountain West group. Most distinctive finding: active equity and bias assessment requirement makes this the most substantively equity-forward policy in the set."},
+  {fips:"32029",county_name:"Storey",state:"Nevada",title:"Storey AI Policy",url:"https://www.storeycounty.org/DocumentCenter/View/22753/400014-Policy-on-the-Responsible-and-Ethical-Use-of-Artificial-Intelligence",adoption_date:"2025-12-16",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"AI use is permitted with approved tools process, data protection requirements, human oversight, and vendor vetting. BOCC-authorized with County Manager oversight.",coverage:"Covers all county employees and operations; no explicit mention of resident-facing automated decision coverage, but vendor requirements and equity principles suggest some attention to external impact.",key_prohibitions:"Unapproved AI tools; use of AI without human oversight; sharing protected or confidential data with AI systems.",key_requirements:"Approved tools process; data protection; mandatory human oversight; transparency in AI use; equity and ethical use principles; vendor requirements; staff training; incident reporting.",high_risk_domains:"",equity_bias_language:"Equity and ethical use principles are listed as a named provision, but no detail is provided about specific bias testing, protected classes, or remediation procedures.",accountability:"BOCC-authorized policy administered by County Manager; incident reporting mechanism in place.",bottom_line:"Storey County — one of the smallest US counties by population — has adopted a formally BOCC-authorized AI policy covering approved use, ethics, vendor requirements, and incident reporting, which is notable for a jurisdiction its size. Most distinctive finding: a tiny rural Nevada county has a more structured AI governance document than many larger jurisdictions, though equity language names the principle without implementation detail."},
+  {fips:"35001",county_name:"Bernalillo",state:"New Mexico",title:"Bernalillo AI Ordinance",url:"https://www.bernco.gov/government/wp-content/uploads/sites/38/2026/01/Ordinance-2026-1-Signed.pdf",adoption_date:"not listed",policy_type:"Ordinance / Resolution (legislatively adopted)",posture:"Permissive with guardrails",posture_notes:"Legislatively adopted ordinance amending county code of conduct to embed AI transparency obligations; stronger legal force than an administrative policy, but posture is permissive with mandatory transparency requirements rather than restrictive.",coverage:"Amends county code governing officers and employees; transparency requirements for AI used in county operations; resident-facing provisions likely given code-level amendment scope.",key_prohibitions:"Non-transparent AI use in county operations is implicitly prohibited under code of conduct obligations.",key_requirements:"AI transparency requirements for county operations; code of conduct compliance for employees using AI; obligations embedded in legally binding county code.",high_risk_domains:"",equity_bias_language:"None explicitly described in available text.",accountability:"Legislatively adopted by Board of County Commissioners as an ordinance; enforcement through county code of conduct mechanisms.",bottom_line:"Bernalillo County enacted AI governance through a legislatively adopted ordinance rather than administrative policy, giving it binding legal force and durability across administrations. Most distinctive finding: legislative adoption makes this enforceable as law and harder to repeal or ignore than any other policy in the dataset — the strongest governance form available."},
+  {fips:"36061",county_name:"New York",state:"New York",title:"Manhattan BP GenAI Policy",url:"https://www.manhattanbp.nyc.gov/wp-content/uploads/2024/02/MBPO-Generative-AI-Policy.pdf",adoption_date:"2024-02-29",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"Staff may use generative AI for research, drafting, and analysis with oversight; strong disclosure and human review requirements; issued by Manhattan Borough President's Office Chief of Operations.",coverage:"Covers MBPO staff only; internal office policy for Manhattan Borough President's Office; does not explicitly cover borough-wide resident-facing automated decisions beyond MBPO operations.",key_prohibitions:"Sharing confidential or sensitive information with AI systems; AI-generated decisions without human review; undisclosed AI use in official documents.",key_requirements:"Mandatory disclosure of AI use in official documents; human review of all AI outputs; data privacy compliance; approved use limited to research, drafting, and analysis.",high_risk_domains:"Official communications, Public-facing documents, Decision-making processes within MBPO",equity_bias_language:"None described in available text.",accountability:"Issued by Chief of Operations (Elaine Cheung); staff-level compliance; no formal audit or incident reporting described.",bottom_line:"The MBPO policy is an internal staff policy for a single borough office, notable for its disclosure requirement mandating that AI use be flagged in official documents. Most distinctive finding: narrow jurisdictional scope — governs one borough president's office, not the broader NYC or Manhattan county apparatus — limiting its reach despite the high-profile jurisdiction."},
+  {fips:"37021",county_name:"Buncombe",state:"North Carolina",title:"Buncombe AI Policy",url:"https://www.buncombecounty.org/common/policies/Acceptable%20Use%20Policy.pdf",adoption_date:"not listed",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Employees may use approved AI tools for work tasks; policy embedded in broader IT acceptable use framework; permissive with data protection, verification, and disclosure guardrails.",coverage:"All county employees and contractors; no explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Inputting PII or confidential data into AI systems; generating discriminatory or misleading content; use of unapproved AI tools.",key_requirements:"Use only approved AI tools; verify AI outputs; disclosure requirements for AI-generated content; mandatory training; disciplinary action for violations.",high_risk_domains:"",equity_bias_language:"Prohibition on generating discriminatory content is noted, but no proactive bias assessment, equity review, or protected-class language is described.",accountability:"Standard disciplinary framework for policy violations; no dedicated AI governance body or audit process.",bottom_line:"Buncombe County takes a standard IT acceptable use approach, embedding AI provisions within existing AUP infrastructure. Most distinctive finding: reliance on existing infrastructure means no new governance apparatus is created — functional but without AI-specific oversight capacity or resident-facing provisions."},
+  {fips:"37063",county_name:"Durham",state:"North Carolina",title:"Durham AI Governance Framework",url:"https://dconc.gov/Information-Services-and-Technology/Documents/Durham_County_AI_Governance_Framework-v1.1-1.pdf",adoption_date:"2025-11-01",policy_type:"IT Policy",posture:"Risk-tiered",posture_notes:"Comprehensive framework with formal risk assessment and classification of AI systems; different requirements apply based on risk level; equity and bias assessments required for all systems; CIO oversight structure.",coverage:"All county AI systems including resident-facing services; automated decisions affecting constituents are explicitly within scope; procurement of AI tools also covered.",key_prohibitions:"Not enumerated in available text, but risk classification implies restrictions on high-risk applications without full assessment and approval.",key_requirements:"Risk assessment and classification for all AI systems; equity and bias assessment required for all AI (not just high-risk); CIO oversight; transparency requirements; vendor requirements; staff training; incident response; annual audit; procurement guidance.",high_risk_domains:"Resident-facing services, Automated decision-making, High-risk classified AI systems",equity_bias_language:"Substantive and the strongest in the dataset: equity and bias assessment is explicitly required for all AI systems county-wide — proactive and universal rather than reactive or aspirational. Not limited to high-risk systems.",accountability:"CIO ownership with defined annual review cycle; incident response process; formal audit requirements; governance structure with clear ownership.",bottom_line:"Durham County's IS&T framework is the most technically sophisticated in the dataset: risk-tiered classification, mandatory equity/bias assessments for ALL AI systems (not just high-risk), CIO governance, annual audit requirements, and explicit resident-facing coverage. Most distinctive finding: Durham is the only county with mandatory bias assessment for every AI deployment regardless of risk level — the strongest universal equity provision in the entire dataset."},
+  {fips:"41067",county_name:"Washington",state:"Oregon",title:"Washington County AI Best Practices",url:"https://www.washingtoncountyor.gov/home/documents/artificial-intelligence-best-practices",adoption_date:"2023-09-26",policy_type:"Guidelines / Best Practices (non-binding)",posture:"Permissive",posture_notes:"Non-binding best practice guidance implementing an underlying policy; recommendations rather than requirements; earliest adoption date in the dataset (September 2023), reflecting early-mover status.",coverage:"County employees using AI tools; no explicit coverage of resident-facing services or automated decision systems described in available text.",key_prohibitions:"None binding; document is guidance only.",key_requirements:"Best practice recommendations for data protection, human oversight, transparency, and training; none are mandatory under this document — binding obligations flow from the underlying Policy 607.",high_risk_domains:"",equity_bias_language:"None described in available text.",accountability:"ITS sponsorship; reviewed February 2026 indicating active maintenance; accountability flows to underlying Policy 607, not this procedure.",bottom_line:"Washington County, Oregon was among the earliest adopters (September 2023) but chose a non-binding best-practice procedure as its primary public-facing document. Most distinctive finding: earliest adoption date in the dataset combined with weakest enforceability — the core governance weight sits in a referenced but unreviewed underlying Policy 607."},
+  {fips:"42003",county_name:"Allegheny",state:"Pennsylvania",title:"Allegheny AI Policy",url:"https://www.alleghenycounty.us/files/assets/county/v/1/government/employment/documents/artificial-intelligence-policy.pdf",adoption_date:"2025-08-14",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"County Manager-issued policy permitting generative AI use with approved tools process, data protection requirements, human oversight, disclosure obligations, and equity considerations for public services.",coverage:"All county employees, contractors, and vendors; equity considerations for AI in public services suggest resident-facing impact is within scope.",key_prohibitions:"PII, confidential, or sensitive data in GenAI systems; discriminatory content generation; deceptive materials; privacy violations; unapproved AI tools.",key_requirements:"Approved tools process; data protection; mandatory human oversight and review; disclosure of GenAI use in official communications; equity considerations for public-service AI; vendor assessment for GenAI procurement; staff training.",high_risk_domains:"Public services (equity considerations flagged), Official county communications",equity_bias_language:"Equity considerations for AI in public services explicitly named; indicates awareness of disparate impact on residents, though no detail on assessment methodology.",accountability:"Issued by County Manager (John Fournier); vendor assessment process creates procurement-stage accountability; extension of scope to contractors and vendors.",bottom_line:"Allegheny County covers employees, contractors, and vendors with explicit equity considerations for public services — broader stakeholder scope than most in the dataset. Most distinctive finding: explicit extension of policy scope to contractors and vendors creates accountability across the full AI supply chain."},
+  {fips:"47037",county_name:"Davidson",state:"Tennessee",title:"Davidson (Nashville) AI Policy",url:"https://www.nashville.gov/sites/default/files/2025-08/ISM-20-Artificial-Intelligence-and-Generative-Artificial-Intelligence-Use.pdf",adoption_date:"2024-04-15",policy_type:"IT Policy",posture:"Approval-based",posture_notes:"Comprehensive approval workflow for AI tools is the policy's centerpiece; data classification drives access and use decisions; equity and bias considerations included; Director of IT as issuing authority.",coverage:"All Metro Nashville/Davidson County employees and contractors; equity and bias considerations and transparency requirements suggest awareness of resident-facing impact.",key_prohibitions:"Sensitive data input into AI systems; undisclosed AI-generated content; use of unapproved AI tools; actions violating data classification requirements.",key_requirements:"Comprehensive approval workflow for all AI tools; data classification and protection; human oversight; equity and bias review; transparency requirements; vendor security assessments; staff training; incident reporting.",high_risk_domains:"Sensitive or classified data systems, Public-facing communications, Decision support systems",equity_bias_language:"Equity and bias considerations are named as a provision; included in an IT security policy from a major metro government, but specific methodology not detailed.",accountability:"Director of Information Technology as issuing authority; vendor security assessment process; incident reporting; formal approval workflow creates documented accountability trail.",bottom_line:"Nashville/Davidson County's policy is distinguished by its comprehensive approval workflow — arguably the most procedurally rigorous pre-use gate in the dataset. Most distinctive finding: the approval workflow integrates AI governance into existing enterprise security infrastructure rather than standing alone — reflecting the scale and security posture of a major metropolitan government."},
+  {fips:"48157",county_name:"Fort Bend",state:"Texas",title:"Fort Bend AI Policy",url:"https://agendalink.fortbendcountytx.gov/docs/2026/CCTR/20260326_4078/67496_Ai_Policy_1_Page_Handout_draft_.pdf",adoption_date:"not listed",policy_type:"Guidelines / Best Practices (non-binding)",posture:"Permissive",posture_notes:"One-page employee handout summarizing responsible use principles; no binding requirements, no approved tools process, no enforcement mechanism; awareness document only.",coverage:"County employees; handout acknowledges public-service context but does not establish formal coverage of resident-facing services or automated decisions.",key_prohibitions:"None formally stated.",key_requirements:"None binding; document conveys expectations for accountability, transparency, and data protection as aspirational principles.",high_risk_domains:"",equity_bias_language:"None",accountability:"No accountability mechanism, governance body, or enforcement process described.",bottom_line:"Fort Bend County's one-page handout is the least substantive governance document in the dataset — a summary awareness tool, not a policy. Most distinctive finding: the only entry in the dataset that cannot reasonably be characterized as a policy; it is a communication artifact with no binding requirements, no prohibitions, and no adoption date."},
+  {fips:"48185",county_name:"Grimes",state:"Texas",title:"Grimes AI Policy",url:"https://grimescountytexas.gov/vertical/sites/%7B958238D0-27E6-4F6C-919E-F1D985420DB7%7D/uploads/Grimes_County_AI_Use_Policy.pdf",adoption_date:"2024-01-25",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"Approved AI tools only; comprehensive prohibitions on data sharing and discriminatory content; binding human oversight requirements; disciplinary enforcement; IT department ownership.",coverage:"County employees; no explicit mention of resident-facing services or automated decision coverage.",key_prohibitions:"Sharing confidential data with AI systems; using AI for binding decisions without human review; generating discriminatory content; use of unapproved AI tools.",key_requirements:"Approved tools only; data protection; mandatory human oversight; disclosure requirements; staff training; vendor requirements; incident reporting; disciplinary action for violations.",high_risk_domains:"Binding decisions affecting individuals, Confidential data processing",equity_bias_language:"Prohibition on generating discriminatory content present, but no proactive equity assessment or bias testing requirement.",accountability:"IT Department ownership; disciplinary action framework; incident reporting; vendor requirements extend accountability to third parties.",bottom_line:"Grimes County — a small rural Texas county — issued a comprehensive binding IT policy with clear prohibitions, human oversight requirements, and disciplinary enforcement. Most distinctive finding: demonstrates that small rural counties can adopt substantive AI governance; the Grimes/Fort Bend contrast within Texas illustrates that jurisdiction size does not determine policy quality."},
+  {fips:"48265",county_name:"Kerr",state:"Texas",title:"Kerr AI Use Policy",url:"http://legacy.co.kerr.tx.us/it/docs/KerrCountyAIUsePolicy-Approved-09-22-25.pdf",adoption_date:"not listed",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"Employees may use AI for approved county business purposes subject to data handling rules, accuracy verification, and disclosure requirements. No approval gate before use.",coverage:"Internal employee use only; no explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Sharing confidential or sensitive information with AI systems; generating discriminatory content; creating deceptive materials; violating privacy.",key_requirements:"Use only approved tools; verify AI output accuracy before use in official work; disclose AI use; complete training; comply with IT governance rules.",high_risk_domains:"",equity_bias_language:"Prohibition on generating discriminatory content mentioned but no substantive equity framework, bias assessment process, or disparate impact analysis.",accountability:"Disciplinary action for violations; IT governance oversight. No named accountability officer or committee.",bottom_line:"A lean, IT-embedded acceptable use policy for a small Texas county — establishes basic guardrails but lacks risk tiering, equity analysis, or resident-facing provisions. Most notable finding: no date, no named governance body, and no coverage of automated decisions affecting constituents."},
+  {fips:"49035",county_name:"Salt Lake",state:"Utah",title:"Salt Lake AI Policy",url:"https://www.saltlakecounty.gov/globalassets/1-site-files/policiesordinances/county-policies/information-technology/9.1.18-ai-policy.pdf",adoption_date:"not listed",policy_type:"Administrative / Executive Policy",posture:"Risk-tiered",posture_notes:"Policy 1400-9 establishes formal risk assessment and classification of AI systems, with requirements scaled to risk level. Vendor assessment and human oversight provisions reflect differentiated treatment by risk.",coverage:"Covers internal county operations and explicitly includes equity and fairness considerations that imply reach to resident-facing services and automated decisions affecting constituents.",key_prohibitions:"High-risk uses without required safeguards; privacy-violating applications; non-transparent deployments.",key_requirements:"Risk assessment and classification before deployment; data privacy and security compliance; vendor assessment; transparency disclosures; human oversight; training; incident reporting; audits.",high_risk_domains:"",equity_bias_language:"Substantive — policy includes explicit equity and fairness considerations as a named governance pillar, indicating structured bias review is part of the framework.",accountability:"Formal audit provisions and incident reporting; comprehensive governance framework suggests designated accountability roles, though specific titles not listed.",bottom_line:"The most comprehensive policy in this set — Salt Lake County's Policy 1400-9 covers the full AI lifecycle from acquisition through audit with a risk-tiered structure and explicit equity pillar. Most distinctive finding: only policy in this group with both formal risk classification and named equity/fairness requirements as a governance pillar."},
+  {fips:"49057",county_name:"Weber",state:"Utah",title:"Weber AI Policy",url:"https://www.webercountyutah.gov/commission/documents/uploads/F6%20%20AI%20Policy.pdf",adoption_date:"not listed",policy_type:"Ordinance / Resolution (legislatively adopted)",posture:"Permissive with guardrails",posture_notes:"Document named 'F6 AI Policy' appears to be a Board of County Commissioners agenda item approving an AI policy, suggesting legislative adoption. Full text unavailable (scanned PDF).",coverage:"Unknown — full text not available.",key_prohibitions:"Unknown — full text not available.",key_requirements:"Unknown — full text not available.",high_risk_domains:"",equity_bias_language:"Unknown — full text not available.",accountability:"Board of County Commissioners approval implied by document naming convention.",bottom_line:"Weber County's policy is unreadable due to scanned PDF format, making substantive analysis impossible. Most distinctive finding: BCC adoption of the policy is implied — a meaningful governance form — but zero extractable content means no provisions can be confirmed."},
+  {fips:"51760",county_name:"Richmond City",state:"Virginia",title:"Richmond City AI Policy",url:"https://www.rva.gov/sites/default/files/2025-06/AR%202.13%20Artificial%20Intelligence%20Use%20Policy.pdf",adoption_date:"2025-06-01",policy_type:"Administrative / Executive Policy",posture:"Permissive with guardrails",posture_notes:"AI may be used to enhance city service delivery to residents. Guardrails include equity and bias assessment, human oversight for consequential decisions, vendor requirements, and transparency obligations.",coverage:"Explicitly covers resident-facing services — policy states AI may be used to enhance delivery of city services to residents. Human oversight requirement for consequential decisions addresses automated decisions affecting constituents.",key_prohibitions:"Not explicitly enumerated in available text beyond implied prohibitions from data privacy, equity, and vendor compliance requirements.",key_requirements:"Governance structure under Mayor's Office; equity and bias assessment; human oversight for consequential decisions; data privacy and security; transparency with residents; vendor requirements; training; incident reporting.",high_risk_domains:"Consequential decisions (human oversight explicitly required), Resident-facing service delivery",equity_bias_language:"Substantive — equity and bias assessment is a named policy requirement. Transparency with residents is separately stated. Indicates structured review process for bias in AI affecting the public.",accountability:"Accountability runs through the Mayor's Office; incident reporting required. Governance structure defined.",bottom_line:"Richmond City's A.R. 2.13 is notable for its explicit resident-facing framing — one of few policies in the dataset that directly addresses service delivery to the public and requires transparency with residents as a standalone obligation. Most distinctive finding: mandatory equity and bias assessment combined with human oversight for consequential decisions gives this policy meaningful protections for constituents."},
+  {fips:"53025",county_name:"Grant",state:"Washington",title:"Grant AI Policy",url:"https://www.grantcountywa.gov/DocumentCenter/View/15458/407---Generative-Artificial-Intelligence-AI-Policy",adoption_date:"not listed",policy_type:"Guidelines / Best Practices (non-binding)",posture:"Permissive with guardrails",posture_notes:"Policy 407 frames itself as guidelines for employee use of generative AI. Approved tools only, data protection rules, disclosure requirements, and prohibited uses constitute guardrails, but guideline framing suggests non-binding or soft enforcement.",coverage:"Covers all county employees and contractors for internal use. No explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"No PII or confidential data in GenAI tools; generating discriminatory content; creating deceptive materials; sharing sensitive data.",key_requirements:"Use only approved GenAI tools; human oversight required; disclose AI-generated official content; complete training; comply with IT governance.",high_risk_domains:"",equity_bias_language:"Prohibition on discriminatory content only — no substantive equity framework or bias assessment process.",accountability:"IT governance and disciplinary action referenced. No named accountability body or officer.",bottom_line:"Grant County Policy 407 is a straightforward generative AI use guideline for a rural Washington county — narrower in scope than adjacent Spokane County's policy, limited to internal employee behavior. Most distinctive finding: guideline (non-binding) framing is a meaningful weakness — no enforcement mechanism established and resident-facing AI use is unaddressed."},
+  {fips:"53063",county_name:"Spokane",state:"Washington",title:"Spokane AI Policy",url:"https://www.spokanecounty.gov/DocumentCenter/View/70465/Policy-721---AI-Policy",adoption_date:"2024-08-01",policy_type:"HR / Acceptable Use Rule",posture:"Permissive with guardrails",posture_notes:"Personnel Policy Manual placement signals HR enforcement mechanism. Employees may use approved GenAI tools for work tasks. Guardrails include data prohibition, mandatory human review of all outputs, disclosure, and supervisory accountability.",coverage:"Covers all county employees and contractors. No explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Sharing confidential data with GenAI tools; generating discriminatory content; creating deceptive materials.",key_requirements:"Use only approved tools; human review required for all GenAI outputs (universal, not risk-tiered); disclose AI-generated content; supervisory accountability; training; disciplinary action for violations.",high_risk_domains:"",equity_bias_language:"Prohibition on discriminatory content only — no substantive equity framework, bias assessment, or disparate impact analysis.",accountability:"Supervisory accountability is a named requirement — supervisors are responsible for employee compliance. Disciplinary action through personnel policy framework.",bottom_line:"Spokane County's Policy 721 stands out for its universal human review mandate — all GenAI outputs require review regardless of risk level, which is a stronger operational guardrail than most comparable policies. Most distinctive finding: placement in the Personnel Policy Manual gives this policy binding HR enforcement teeth absent in guideline-framed alternatives."},
+  {fips:"55045",county_name:"Green",state:"Wisconsin",title:"Green County AI Policy",url:"https://www.greencountywi.org/DocumentCenter/View/1668/Information-Technology-Policy",adoption_date:"2024-07-03",policy_type:"IT Policy",posture:"Permissive with guardrails",posture_notes:"AI provisions embedded within broader IT acceptable use policy framework. Employees may use AI tools for county business with data protection, prohibited use, human oversight, and disclosure requirements as guardrails.",coverage:"Internal employee use only based on IT policy framing. No explicit coverage of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Prohibited uses include data protection violations and general acceptable use categories.",key_requirements:"Acceptable use for county business; data protection compliance; human oversight; disclosure requirements. Embedded within broader IT policy rather than standalone AI framework.",high_risk_domains:"",equity_bias_language:"None — no equity framework, bias assessment, or fairness language present.",accountability:"IT policy enforcement framework. No named AI-specific accountability body or officer.",bottom_line:"Green County represents the lightest-touch approach — AI governance embedded as a subsection of a general IT policy with no standalone framework, no equity provisions, and no resident-facing coverage. Most distinctive finding: 2021 implementation date with 2024 revision suggests AI provisions were retrofitted into a legacy IT policy rather than designed as purpose-built AI governance."},
+  {fips:"55079",county_name:"Milwaukee",state:"Wisconsin",title:"Milwaukee AI Policy",url:"https://county.milwaukee.gov/files/county/administrative-services/AMOP/Chapter-6---Information-Technology/6.0AI-Policy.pdf",adoption_date:"2024-08-23",policy_type:"Administrative / Executive Policy",posture:"Approval-based",posture_notes:"Administrative Directive issued through Information Security Council with a formal approved tools process — employees must use tools cleared through IMSD. Named council indicates structured approval pathway.",coverage:"Covers county departments through administrative directive. No explicit mention of resident-facing services or automated decisions affecting constituents.",key_prohibitions:"Prohibited uses referenced but not specifically enumerated in available text.",key_requirements:"Comply with IMSD Principles; use only approved tools via formal approval process; data protection; human oversight; training; incident reporting; accountability through Information Security Council.",high_risk_domains:"",equity_bias_language:"None explicitly stated — no equity framework or bias assessment language described.",accountability:"Information Security Council is the named governance and approval body. IMSD (Information Management Services Division) administers the directive. Version-controlled document (v1.0) suggests ongoing governance.",bottom_line:"Milwaukee County's approach is distinguished by its named institutional governance structure — the Information Security Council as approval authority and IMSD as administrator gives this policy a clearer accountability chain than most in the dataset. Most distinctive finding: approval-based posture enforced through a standing council is the strongest organizational control mechanism in the dataset, though absence of equity language is a notable gap for a major urban county."}
+];
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'civic_ai_obs_v2';
+const POSTURE_COLORS = {
+  "Permissive": "#22c55e",
+  "Permissive with guardrails": "#84cc16",
+  "Approval-based": "#eab308",
+  "Risk-tiered": "#f97316",
+  "Restrictive by default": "#ef4444",
+  "Moratorium / Pause": "#a855f7"
+};
+const POLICY_TYPE_COLORS = {
+  "HR / Acceptable Use Rule": "#60a5fa",
+  "Administrative / Executive Policy": "#818cf8",
+  "IT Policy": "#34d399",
+  "Guidelines / Best Practices (non-binding)": "#fbbf24",
+  "Ordinance / Resolution (legislatively adopted)": "#f472b6",
+  "Procurement Policy": "#fb923c"
+};
+const POSTURE_OPTIONS = ["Permissive","Permissive with guardrails","Approval-based","Risk-tiered","Restrictive by default","Moratorium / Pause"];
+const POLICY_TYPE_OPTIONS = ["HR / Acceptable Use Rule","Administrative / Executive Policy","IT Policy","Guidelines / Best Practices (non-binding)","Ordinance / Resolution (legislatively adopted)","Procurement Policy"];
+const FIELDS_DISPLAY = [
+  {key:'policy_type',label:'Policy Type'},
+  {key:'posture',label:'Posture'},
+  {key:'posture_notes',label:'Posture Notes'},
+  {key:'adoption_date',label:'Adoption Date'},
+  {key:'coverage',label:'Coverage'},
+  {key:'key_prohibitions',label:'Key Prohibitions'},
+  {key:'key_requirements',label:'Key Requirements'},
+  {key:'high_risk_domains',label:'High-Risk Domains'},
+  {key:'equity_bias_language',label:'Equity / Bias Language'},
+  {key:'accountability',label:'Accountability'},
+  {key:'bottom_line',label:'Bottom Line'},
+];
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let db = [];
+let currentView = 'map';
+let currentLens = 'posture';
+let selectedFips = null;
+let usGeo = null;
+let mapSvg = null, mapG = null, countyPaths = null;
+let editingFips = null;
+
+// ─── STORAGE ──────────────────────────────────────────────────────────────────
+function loadDB() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      // Merge: saved overrides seed for known fips
+      const map = new Map(saved.map(p => [p.fips, p]));
+      db = SEED_DATA.map(s => map.has(s.fips) ? {...s, ...map.get(s.fips)} : {...s});
+      // Add any saved entries not in seed
+      saved.forEach(p => { if (!db.find(d => d.fips === p.fips)) db.push(p); });
+    } else {
+      db = SEED_DATA.map(s => ({...s}));
+    }
+  } catch(e) { db = SEED_DATA.map(s => ({...s})); }
+}
+
+function saveDB() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+}
+
+function getPolicyByFips(fips) { return db.find(p => p.fips === fips); }
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+function blindSpotScore(p) {
+  if (!p.posture) return null; // not analyzed yet
+  let s = 0;
+  if (residentFacingTier(p) === 'Employee-only') s++;
+  if (!p.equity_bias_language || p.equity_bias_language.toLowerCase() === 'none' || p.equity_bias_language.trim() === '') s++;
+  if (!p.high_risk_domains || p.high_risk_domains.trim() === '') s++;
+  const acc = (p.accountability||'').toLowerCase();
+  if (!acc.includes('public') && !acc.includes('audit') && !acc.includes('website') && !acc.includes('disclos')) s++;
+  const hasOversight = acc.includes('board') || acc.includes('committee') || acc.includes('oversight') || acc.includes('review') || acc.includes('task');
+  if (!hasOversight) s++;
+  return Math.min(s, 5);
+}
+
+// ─── RESIDENT-FACING TIER MAP ─────────────────────────────────────────────────
+const RF_MAP = {
+  "01073":"Employee-only","02100":"Employee-only","02110":"Employee-only",
+  "02230":"Employee-only","04003":"Employee-only","04021":"Resident-mentioned",
+  "06001":"Employee-only","06017":"Resident-mentioned","06027":"Resident-facing",
+  "06041":"Resident-facing","06043":"Employee-only","06045":"Resident-mentioned",
+  "06053":"Resident-facing","06061":"Employee-only","06067":"Resident-facing",
+  "06075":"Resident-mentioned","06077":"Resident-facing","06083":"Resident-mentioned",
+  "06087":"Employee-only","06097":"Employee-only","08035":"Resident-mentioned",
+  "08123":"Resident-facing","09140":"Employee-only","11001":"Resident-mentioned",
+  "12075":"Employee-only","12086":"Resident-mentioned","13067":"Employee-only",
+  "66010":"Resident-mentioned","16055":"Employee-only","17085":"Employee-only",
+  "19013":"Employee-only","20113":"Employee-only","21111":"Resident-mentioned",
+  "23007":"Employee-only","24027":"Employee-only","24033":"Employee-only",
+  "26115":"Employee-only","26129":"Employee-only","27163":"Resident-mentioned",
+  "30063":"Resident-mentioned","32029":"Employee-only","35001":"Resident-mentioned",
+  "36061":"Employee-only","37021":"Employee-only","37063":"Resident-facing",
+  "41067":"Employee-only","42003":"Resident-mentioned","47037":"Resident-mentioned",
+  "48157":"Employee-only","48185":"Employee-only","48265":"Employee-only",
+  "49035":"Resident-mentioned","49057":"Employee-only","51760":"Resident-facing",
+  "53025":"Employee-only","53063":"Employee-only","55045":"Employee-only","55079":"Employee-only"
+};
+function residentFacingTier(p) { return RF_MAP[p.fips] || 'Employee-only'; }
+
+
+function bssColor(score) {
+  if (score === null) return '#c8c4bc';
+  const colors = ['#4ade80','#a3e635','#fbbf24','#fb923c','#ef4444','#991b1b'];
+  return colors[score] || colors[5];
+}
+
+function postureColor(p) {
+  if (!p || !p.posture) return '#c8c4bc';
+  return POSTURE_COLORS[p.posture] || '#c8c4bc';
+}
+
+function postureBadgeStyle(posture) {
+  const c = POSTURE_COLORS[posture];
+  if (!c) return '';
+  return `background:${c}22;color:${c === '#22c55e' || c === '#84cc16' ? '#166534' : c === '#ef4444' || c === '#a855f7' ? '#fff' : '#1a1814'};border:1px solid ${c}44;`;
+}
+
+function getLensColor(fips) {
+  const p = getPolicyByFips(fips);
+  if (!p) return '#e5e2db';
+  const analyzed = p.posture || p.policy_type || p.coverage;
+  if (currentLens === 'posture') {
+    if (!analyzed) return '#c8c4bc';
+    return postureColor(p);
+  }
+  if (currentLens === 'policy_type') {
+    return POLICY_TYPE_COLORS[p.policy_type] || '#c8c4bc';
+  }
+  if (currentLens === 'equity') {
+    const e = (p.equity_bias_language||'').toLowerCase();
+    if (!analyzed) return '#c8c4bc';
+    if (!e || e === 'none') return '#fecaca';
+    if (e.includes('substantive') || e.includes('explicit') || e.includes('prohibit')) return '#16a34a';
+    return '#fbbf24';
+  }
+  if (currentLens === 'resident') {
+    if (!analyzed) return '#c8c4bc';
+    const tier = residentFacingTier(p);
+    if (tier === 'Resident-facing') return '#22c55e';
+    if (tier === 'Resident-mentioned') return '#eab308';
+    return '#ef4444';
+  }
+  if (currentLens === 'blind_spot') {
+    const s = blindSpotScore(p);
+    if (s === null) return '#c8c4bc';
+    return bssColor(s);
+  }
+  if (currentLens === 'domains') {
+    if (!analyzed) return '#c8c4bc';
+    const d = (p.high_risk_domains||'').trim();
+    if (!d) return '#fecaca';
+    const count = d.split(',').filter(x=>x.trim()).length;
+    const scale = ['#dbeafe','#93c5fd','#3b82f6','#1d4ed8','#1e3a8a'];
+    return scale[Math.min(count-1, 4)] || scale[0];
+  }
+  if (currentLens === 'year') {
+    const y = parseInt((p.adoption_date||'').slice(0,4));
+    if (!y || isNaN(y)) return '#c8c4bc';
+    const yScale = {2022:'#dbeafe',2023:'#93c5fd',2024:'#3b82f6',2025:'#1d4ed8',2026:'#1e3a8a'};
+    return yScale[y] || '#c8c4bc';
+  }
+  if (currentLens === 'accountability') {
+    if (!analyzed) return '#c8c4bc';
+    const acc = (p.accountability||'').toLowerCase();
+    if (acc.includes('public') || acc.includes('website') || acc.includes('disclos')) return '#16a34a';
+    if (acc.includes('audit') || acc.includes('oversight') || acc.includes('board') || acc.includes('commit')) return '#fbbf24';
+    return '#fecaca';
+  }
+  return '#c8c4bc';
+}
+
+function getLegendItems() {
+  if (currentLens === 'posture') return [
+    ...Object.entries(POSTURE_COLORS).map(([k,c])=>({label:k,color:c})),
+    {label:'Not yet analyzed',color:'#c8c4bc'},
+    {label:'No policy',color:'#e5e2db'}
+  ];
+  if (currentLens === 'policy_type') return [
+    ...Object.entries(POLICY_TYPE_COLORS).map(([k,c])=>({label:k.length>30?k.slice(0,28)+'…':k,color:c})),
+    {label:'Unknown / Not analyzed',color:'#c8c4bc'},
+    {label:'No policy',color:'#e5e2db'}
+  ];
+  if (currentLens === 'equity') return [
+    {label:'Substantive equity language',color:'#16a34a'},
+    {label:'Thin / partial',color:'#fbbf24'},
+    {label:'None',color:'#fecaca'},
+    {label:'Not analyzed',color:'#c8c4bc'},
+    {label:'No policy',color:'#e5e2db'}
+  ];
+  if (currentLens === 'resident') return [
+    {color:'#22c55e', label:'Resident-facing (actual rights/protections)'},
+    {color:'#eab308', label:'Resident-mentioned (reference only, no rights)'},
+    {color:'#ef4444', label:'Employee-only (residents invisible)'},
+    {color:'#e5e2db', label:'No policy tracked'},
+  ];
+  if (currentLens === 'blind_spot') return [
+    {label:'Score 0 — most mature',color:'#4ade80'},
+    {label:'Score 1',color:'#a3e635'},
+    {label:'Score 2',color:'#fbbf24'},
+    {label:'Score 3',color:'#fb923c'},
+    {label:'Score 4',color:'#ef4444'},
+    {label:'Score 5 — most gaps',color:'#991b1b'},
+    {label:'Not analyzed',color:'#c8c4bc'},
+    {label:'No policy',color:'#e5e2db'}
+  ];
+  if (currentLens === 'domains') return [
+    {label:'1 domain named',color:'#dbeafe'},
+    {label:'2 domains',color:'#93c5fd'},
+    {label:'3 domains',color:'#3b82f6'},
+    {label:'4+ domains',color:'#1d4ed8'},
+    {label:'None named',color:'#fecaca'},
+    {label:'No policy',color:'#e5e2db'}
+  ];
+  if (currentLens === 'year') return [
+    {label:'2022',color:'#dbeafe'},{label:'2023',color:'#93c5fd'},
+    {label:'2024',color:'#3b82f6'},{label:'2025',color:'#1d4ed8'},
+    {label:'2026',color:'#1e3a8a'},{label:'Date unknown',color:'#c8c4bc'}
+  ];
+  if (currentLens === 'accountability') return [
+    {label:'Public accountability',color:'#16a34a'},
+    {label:'Governance body / audit',color:'#fbbf24'},
+    {label:'Minimal / IT only',color:'#fecaca'},
+    {label:'Not analyzed',color:'#c8c4bc'},
+    {label:'No policy',color:'#e5e2db'}
+  ];
+  return [];
+}
+
+// ─── MAP ──────────────────────────────────────────────────────────────────────
+async function initMap() {
+  const container = document.getElementById('map-svg');
+  const W = container.clientWidth || 900;
+  const H = container.clientHeight || 580;
+  const svg = d3.select('#map-svg').attr('viewBox', `0 0 ${W} ${H}`);
+  mapSvg = svg;
+  const zoom = d3.zoom().scaleExtent([1, 12])
+    .on('zoom', e => mapG.attr('transform', e.transform));
+  svg.call(zoom);
+  const g = svg.append('g');
+  mapG = g;
+
+  try {
+    usGeo = await d3.json('https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json');
+  } catch(e) {
+    g.append('text').attr('x', W/2).attr('y', H/2)
+      .attr('text-anchor','middle').attr('font-family','Syne,sans-serif').attr('font-size',13)
+      .text('Map data unavailable — check network connection');
+    return;
+  }
+
+  const policyFips = new Set(db.map(p => p.fips));
+  const projection = d3.geoAlbersUsa().fitSize([W, H],
+    topojson.feature(usGeo, usGeo.objects.nation));
+  const path = d3.geoPath().projection(projection);
+
+  g.append('g').selectAll('path')
+    .data(topojson.feature(usGeo, usGeo.objects.counties).features)
+    .join('path')
+    .attr('class', d => `county${policyFips.has(d.id) ? ' has-policy' : ''}`)
+    .attr('d', path)
+    .attr('fill', d => policyFips.has(d.id) ? getLensColor(d.id) : '#e5e2db')
+    .attr('data-fips', d => d.id)
+    .on('mousemove', (event, d) => showTooltip(event, d.id))
+    .on('mouseleave', hideTooltip)
+    .on('click', (event, d) => { if (policyFips.has(d.id)) openDetail(d.id); });
+
+  g.append('path').datum(topojson.mesh(usGeo, usGeo.objects.states, (a,b)=>a!==b))
+    .attr('class','state-borders').attr('d', path);
+
+  countyPaths = g.selectAll('.county');
+  renderLegend();
+}
+
+function updateMapColors() {
+  if (!countyPaths) return;
+  const policyFips = new Set(db.map(p => p.fips));
+  countyPaths.attr('fill', d => policyFips.has(d.id) ? getLensColor(d.id) : '#e5e2db');
+  renderLegend();
+}
+
+function renderLegend() {
+  const el = document.getElementById('map-legend');
+  const items = getLegendItems();
+  el.innerHTML = `<div class="legend-head">${currentLens.replace('_',' ')}</div>` +
+    items.map(i => `<div class="legend-row"><div class="l-swatch" style="background:${i.color}"></div>${i.label}</div>`).join('');
+}
+
+function showTooltip(event, fips) {
+  const p = getPolicyByFips(fips);
+  if (!p) return;
+  const tt = document.getElementById('map-tooltip');
+  const badge = p.posture ? `<div class="tt-badge" style="${postureBadgeStyle(p.posture)}">${p.posture}</div>` : '';
+  const bl = p.bottom_line ? `<div class="tt-text">${p.bottom_line.slice(0,100)}…</div>` : `<div class="tt-text" style="color:#6a6560">Not yet analyzed — click to add data</div>`;
+  tt.innerHTML = `<div class="tt-name">${p.county_name}</div><div class="tt-state">${p.state}</div>${badge}${bl}`;
+  const rect = document.querySelector('.map-wrap').getBoundingClientRect();
+  let x = event.clientX - rect.left + 14;
+  let y = event.clientY - rect.top - 10;
+  if (x + 230 > rect.width) x = event.clientX - rect.left - 230;
+  tt.style.left = x + 'px'; tt.style.top = y + 'px'; tt.style.display = 'block';
+}
+
+function hideTooltip() {
+  document.getElementById('map-tooltip').style.display = 'none';
+}
+
+// ─── DETAIL PANEL ─────────────────────────────────────────────────────────────
+function openDetail(fips) {
+  selectedFips = fips;
+  const p = getPolicyByFips(fips);
+  if (!p) return;
+  document.getElementById('dp-county').textContent = p.county_name;
+  document.getElementById('dp-state').textContent = p.state;
+
+  let html = '';
+
+  // Special flags
+  if (fips === '08123') html += `<div class="dp-flag flag-weld">★ Only county with mandatory public AI registry</div><br>`;
+  if (p.bottom_line && p.bottom_line.includes('sunset')) html += `<div class="dp-flag flag-warn">⚠ Governance cliff: advisory body sunsets Dec 31, 2026</div><br>`;
+  if ((p.key_prohibitions||'').toLowerCase().includes('carve') || (p.bottom_line||'').toLowerCase().includes('carve')) html += `<div class="dp-flag flag-warn">⚠ Law enforcement carve-out present</div><br>`;
+
+  // BSS
+  const bss = blindSpotScore(p);
+  if (bss !== null) {
+    html += `<div class="dp-field"><div class="dp-label">Civic Blind Spot Score</div>
+    <div class="dp-value"><div class="bss-bar">
+      ${[0,1,2,3,4].map(i=>`<div class="bss-pip${i<bss?' on':''}"></div>`).join('')}
+    </div><span style="font-family:Syne,sans-serif;font-size:10px;color:var(--muted);margin-top:3px;display:block">${bss}/5 gaps</span></div></div>`;
+  }
+
+  if (p.posture) {
+    html += `<div class="dp-field"><div class="dp-label">Posture</div>
+    <div class="dp-value"><span class="posture-badge" style="${postureBadgeStyle(p.posture)}">${p.posture}</span></div></div>`;
+  }
+
+  // Resident-facing tier badge
+  const rft = residentFacingTier(p);
+  const rftColor = {'Resident-facing':'#22c55e','Resident-mentioned':'#eab308','Employee-only':'#ef4444'};
+  html += `<div class="dp-field"><div class="dp-label">Resident-Facing Tier</div>
+  <div class="dp-value"><span class="posture-badge" style="background:${rftColor[rft]}20;color:${rftColor[rft]};border:1px solid ${rftColor[rft]}40">${rft}</span></div></div>`;
+
+  FIELDS_DISPLAY.filter(f => f.key !== 'posture').forEach(f => {
+    const v = p[f.key];
+    if (!v && !['policy_type','adoption_date','coverage','equity_bias_language','accountability'].includes(f.key)) return;
+    html += `<div class="dp-field"><div class="dp-label">${f.label}</div>
+    <div class="dp-value">${v || '<span style="color:var(--muted);font-style:italic">Not analyzed</span>'}</div></div>`;
+  });
+
+  html += `<div class="dp-field dp-link"><div class="dp-label">Source Document</div>
+  <a href="${p.url}" target="_blank" rel="noopener">${p.url.slice(0,60)}…</a></div>`;
+
+  document.getElementById('dp-body').innerHTML = html;
+  document.getElementById('dp-edit-btn').onclick = () => openEditForm(fips);
+  document.getElementById('dp-link-btn').onclick = () => window.open(p.url, '_blank');
+  const panel = document.getElementById('detail-panel');
+  panel.classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  selectedFips = null;
+}
+
+// ─── VIEWS ────────────────────────────────────────────────────────────────────
+function switchView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(name + '-view').classList.add('active');
+  document.querySelector(`[data-view="${name}"]`).classList.add('active');
+  currentView = name;
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'timeline') renderTimeline();
+  if (name === 'patterns') renderPatterns();
+  if (name === 'discovery') renderDiscovery();
+  if (name === 'add' && !editingFips) renderAddForm();
+  if (name === 'compare') populateCompareSelect();
+}
+
+// ─── LENS ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.lens-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.lens-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentLens = btn.dataset.lens;
+    updateMapColors();
+  });
+});
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const analyzed = db.filter(p => p.posture || p.policy_type);
+  const total = db.length;
+  const withEquity = db.filter(p => p.equity_bias_language && p.equity_bias_language.toLowerCase() !== 'none' && p.equity_bias_language.trim());
+  const withResident = db.filter(p => residentFacingTier(p) === 'Resident-facing');
+  const withDomains = db.filter(p => p.high_risk_domains && p.high_risk_domains.trim());
+  const withPublicAcc = db.filter(p => (p.accountability||'').toLowerCase().includes('public') || (p.accountability||'').toLowerCase().includes('website'));
+  const withLECarve = db.filter(p => (p.bottom_line||'').toLowerCase().includes('carve') || (p.key_prohibitions||'').toLowerCase().includes('carve'));
+  const states = [...new Set(db.map(p=>p.state))].length;
+
+  // Posture dist
+  const postureCounts = {};
+  POSTURE_OPTIONS.forEach(o => postureCounts[o] = db.filter(p => p.posture === o).length);
+
+  // Policy type dist
+  const typeCounts = {};
+  POLICY_TYPE_OPTIONS.forEach(o => typeCounts[o] = db.filter(p => p.policy_type === o).length);
+
+  // Year dist
+  const yearCounts = {};
+  db.forEach(p => {
+    const y = (p.adoption_date||'').slice(0,4);
+    if (y && !isNaN(y)) yearCounts[y] = (yearCounts[y]||0) + 1;
+  });
+
+  const pct = (n) => total ? Math.round(n/total*100) : 0;
+
+  function barChart(title, data, colorFn) {
+    const max = Math.max(...Object.values(data), 1);
+    return `<div class="chart-box"><div class="chart-title">${title}</div>` +
+      Object.entries(data).filter(([,v])=>v>0).map(([k,v]) =>
+        `<div class="bar-row">
+          <div class="bar-label">${k.length>28?k.slice(0,26)+'…':k}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${v/max*100}%;background:${colorFn(k)}"></div></div>
+          <div class="bar-val">${v}</div>
+        </div>`
+      ).join('') + '</div>';
+  }
+
+  document.getElementById('dash-inner').innerHTML = `
+    <div style="padding:20px;display:flex;flex-direction:column;gap:18px;">
+      <div>
+        <div class="dash-section-title">At a Glance</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-n">${total}</div><div class="stat-l">Counties tracked</div></div>
+          <div class="stat-card"><div class="stat-n">${analyzed.length}</div><div class="stat-l">Fully analyzed</div></div>
+          <div class="stat-card"><div class="stat-n">${states}</div><div class="stat-l">States represented</div></div>
+          <div class="stat-card"><div class="stat-n">${pct(withEquity.length)}%</div><div class="stat-l">Substantive equity language</div></div>
+          <div class="stat-card"><div class="stat-n">${pct(withResident.length)}%</div><div class="stat-l">Resident-facing coverage</div></div>
+          <div class="stat-card"><div class="stat-n">${pct(withDomains.length)}%</div><div class="stat-l">High-risk domains named</div></div>
+          <div class="stat-card"><div class="stat-n">${pct(withPublicAcc.length)}%</div><div class="stat-l">Public accountability mechanism</div></div>
+          <div class="stat-card"><div class="stat-n">${withLECarve.length}</div><div class="stat-l">Law enforcement carve-outs</div></div>
+        </div>
+      </div>
+      <div class="chart-row">
+        ${barChart('Posture Distribution', postureCounts, k => POSTURE_COLORS[k]||'#c8c4bc')}
+        ${barChart('Policy Type Distribution', typeCounts, k => POLICY_TYPE_COLORS[k]||'#c8c4bc')}
+      </div>
+      <div class="chart-row">
+        ${barChart('Adoption by Year', yearCounts, () => '#3b82f6')}
+        <div class="chart-box"><div class="chart-title">High-Risk Domain Coverage</div>
+          ${['Elections','Law Enforcement','Benefits','Health','HR','Legal'].map(d => {
+            const n = db.filter(p => (p.high_risk_domains||'').toLowerCase().includes(d.toLowerCase())).length;
+            return `<div class="bar-row"><div class="bar-label">${d}</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${n/Math.max(total,1)*100}%;background:#818cf8"></div></div>
+              <div class="bar-val">${n}</div></div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── TIMELINE ─────────────────────────────────────────────────────────────────
+function renderTimeline() {
+  const dated = db.filter(p => p.adoption_date && p.adoption_date !== 'not listed').sort((a,b) => a.adoption_date.localeCompare(b.adoption_date));
+  const undated = db.filter(p => !p.adoption_date || p.adoption_date === 'not listed');
+  const byYear = {};
+  dated.forEach(p => {
+    const y = p.adoption_date.slice(0,4);
+    if (!byYear[y]) byYear[y] = [];
+    byYear[y].push(p);
+  });
+
+  let html = '<div style="padding:20px;">';
+  Object.entries(byYear).sort().forEach(([year, policies]) => {
+    html += `<div class="tl-year-block"><div class="tl-year-head">${year}</div>`;
+    policies.forEach(p => {
+      const badge = p.posture ? `<span class="posture-badge" style="${postureBadgeStyle(p.posture)};font-size:8px;padding:1px 6px;margin-left:6px;">${p.posture}</span>` : '';
+      html += `<div class="tl-entry" onclick="openDetailFromTimeline('${p.fips}')">
+        <div class="tl-date">${p.adoption_date}</div>
+        <div class="tl-info">
+          <div class="tl-name">${p.county_name}, ${p.state} ${badge}</div>
+          <div class="tl-bottom">${p.bottom_line || p.title}</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  });
+
+  if (undated.length) {
+    html += `<div class="tl-year-block"><div class="tl-year-head" style="font-size:18px">Date Not Listed</div>`;
+    undated.forEach(p => {
+      html += `<div class="tl-entry" onclick="openDetailFromTimeline('${p.fips}')">
+        <div class="tl-date">—</div>
+        <div class="tl-info"><div class="tl-name">${p.county_name}, ${p.state}</div>
+        <div class="tl-bottom">${p.bottom_line || p.title}</div></div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById('tl-inner').innerHTML = html;
+}
+
+function openDetailFromTimeline(fips) {
+  switchView('map');
+  setTimeout(() => openDetail(fips), 100);
+}
+
+// ─── COMPARE ──────────────────────────────────────────────────────────────────
+function populateCompareSelect() {
+  const sel = document.getElementById('compare-select');
+  sel.innerHTML = db.map(p => `<option value="${p.fips}">${p.county_name}, ${p.state}</option>`).join('');
+}
+
+function renderCompare() {
+  const sel = document.getElementById('compare-select');
+  const chosen = [...sel.selectedOptions].map(o => getPolicyByFips(o.value)).filter(Boolean);
+  if (chosen.length < 2) {
+    document.getElementById('compare-table-wrap').innerHTML = '<p class="empty-state" style="padding:16px">Select 2–6 counties to compare.</p>';
+    return;
+  }
+
+  const rows = [
+    {key:'policy_type',label:'Policy Type'},
+    {key:'posture',label:'Posture'},
+    {key:'adoption_date',label:'Adoption Date'},
+    {key:'coverage',label:'Coverage'},
+    {key:'equity_bias_language',label:'Equity Language'},
+    {key:'high_risk_domains',label:'High-Risk Domains'},
+    {key:'key_prohibitions',label:'Key Prohibitions'},
+    {key:'key_requirements',label:'Key Requirements'},
+    {key:'accountability',label:'Accountability'},
+    {key:'bottom_line',label:'Bottom Line'},
+  ];
+
+  let html = `<table class="compare-table"><thead><tr><th class="row-label">Field</th>
+    ${chosen.map(p=>`<th>${p.county_name}<br><span style="font-weight:400;opacity:.7">${p.state}</span></th>`).join('')}
+  </tr></thead><tbody>`;
+
+  const diffs = [];
+  rows.forEach(r => {
+    const vals = chosen.map(p => p[r.key]||'');
+    const unique = new Set(vals);
+    const isDiverge = unique.size > 1 && !vals.every(v=>!v);
+    if (isDiverge) diffs.push(r.label);
+    html += `<tr><td class="row-label">${r.label}</td>
+      ${vals.map(v => `<td class="${isDiverge?'divergent':''}">${v||'<em style="color:var(--muted)">—</em>'}</td>`).join('')}
+    </tr>`;
+  });
+  html += '</tbody></table>';
+
+  document.getElementById('compare-table-wrap').innerHTML = html;
+  document.getElementById('diff-summary').innerHTML = diffs.length
+    ? `<strong style="font-family:Syne,sans-serif;">Key differences:</strong> ${diffs.join(' · ')}`
+    : 'No significant differences detected in analyzed fields.';
+}
+
+function exportCompare() {
+  const sel = document.getElementById('compare-select');
+  const chosen = [...sel.selectedOptions].map(o => getPolicyByFips(o.value)).filter(Boolean);
+  if (!chosen.length) return;
+  const fields = ['county_name','state',...FIELDS_DISPLAY.map(f=>f.key)];
+  const rows = [fields.join('\t'), ...chosen.map(p => fields.map(f=>p[f]||'').join('\t'))];
+  downloadText(rows.join('\n'), 'compare.tsv');
+}
+
+// ─── PATTERNS ─────────────────────────────────────────────────────────────────
+function renderPatterns() {
+  const analyzed = db.filter(p => p.posture || p.policy_type || p.bottom_line);
+  const total = db.length;
+  const withEquity = db.filter(p => p.equity_bias_language && p.equity_bias_language.toLowerCase() !== 'none' && p.equity_bias_language.trim());
+  const withResident = db.filter(p => residentFacingTier(p) === 'Resident-facing');
+  const caCounties = db.filter(p => p.state === 'California');
+  const caWithData = caCounties.filter(p => p.posture || p.policy_type);
+  const bssScored = db.map(p => ({...p, bss: blindSpotScore(p)})).filter(p => p.bss !== null);
+  const avgBss = bssScored.length ? (bssScored.reduce((s,p)=>s+p.bss,0)/bssScored.length).toFixed(1) : 'N/A';
+
+  const cards = [
+    {cls:'hi', head:'★ Gold Standard: Weld County, Colorado',
+      body:`Weld County CO is the <strong>only policy in the entire dataset</strong> requiring a public-facing website listing all high-risk AI systems with mandatory discrimination risk management disclosures. No other county in the dataset has created a comparable public accountability mechanism. This is the benchmark every other jurisdiction should be measured against.`},
+    {cls:'warn', head:'⚠ Live Governance Cliff: District of Columbia',
+      body:`DC's AI Taskforce and Advisory Group are set to <strong>sunset December 31, 2026</strong> with no stated renewal mechanism. Unless action is taken before year-end, DC loses its primary AI governance body — with no successor institution defined.`},
+    {cls:'warn', head:'⚠ Recurring Governance Gap: Law Enforcement Carve-Outs',
+      body:`Law enforcement is explicitly carved out from policy coverage in <strong>El Dorado CA, Mendocino CA</strong>, and others. This is the single most consequential blind spot in county AI governance: the highest-stakes use of AI (policing, surveillance, pretrial risk scoring) is systematically excluded from the policies meant to govern it.`},
+    {cls:'', head:'Elections Protection: Pinal County, Arizona Stands Alone',
+      body:`Pinal AZ has the <strong>strongest elections language</strong> in the dataset — AI is explicitly barred from certified election equipment. No other county in the dataset matches this specificity. Given the stakes of AI in elections administration, this gap across the other 57 counties is notable.`},
+    {cls:'info', head:'The Non-Binding Tension: Marin County, California',
+      body:`Marin CA has the most resident-facing provisions of any policy reviewed — yet the document is <strong>non-binding guidelines</strong>. This creates a meaningful tension: the most protective language for residents has the weakest legal force. Comparing Marin to counties with binding policies but no resident-facing provisions illustrates the difference between aspiration and governance.`},
+    {cls:'info', head:'California Cluster',
+      body:`California has <strong>${caCounties.length} counties</strong> in the dataset — far more than any other state. ${caWithData.length} have been analyzed. Watch for state-level policy convergence: California counties may be responding to state-level guidance or shared legal counsel.`},
+    {cls:'', head:'Internal Focus: The Dataset Default',
+      body:`The overwhelming majority of policies reviewed so far are <strong>entirely internal-facing</strong> — governing employee use of AI, not what AI does to residents. The exceptions are Marin (non-binding), Inyo (informed consent), Monterey (automated decision prohibition), Sacramento (opt-out), San Joaquin (protected class prohibition), and Weld (public accountability). Six out of ${total} counties is ${Math.round(6/total*100)}% of the dataset.`},
+    {cls:'', head:'Average Civic Blind Spot Score',
+      body:`Of ${bssScored.length} analyzed counties, the average blind spot score is <strong>${avgBss}/5</strong>. A score of 5 means a county's policy has zero: resident-facing coverage, equity language, high-risk domain callouts, public accountability, or governance body. Most policies cluster in the 3–4 range.`},
+    {cls:'warn', head:'Equity Language: Haves vs. Have-Nots',
+      body:`Only <strong>${withEquity.length} of ${total}</strong> counties (${Math.round(withEquity.length/total*100)}%) have substantive equity or bias language. The majority either have no equity provisions or mention the concept without operational content. San Joaquin's explicit protected class prohibition is the strongest example.`},
+  ];
+
+  document.getElementById('patterns-inner').innerHTML = cards.map(c =>
+    `<div class="insight-card ${c.cls}"><div class="insight-head">${c.head}</div><div class="insight-body">${c.body}</div></div>`
+  ).join('');
+}
+
+// ─── DISCOVERY ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.disc-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.disc-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.disc-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('disc-' + tab.dataset.disc).classList.add('active');
+    renderDiscoveryPanel(tab.dataset.disc);
+  });
+});
+
+function renderDiscovery() { renderDiscoveryPanel('blindspot'); }
+
+function renderDiscoveryPanel(name) {
+  if (name === 'blindspot') renderBlindSpot();
+  if (name === 'govgap') renderGovGap();
+  if (name === 'wave') renderWave();
+  if (name === 'similar') renderSimilar();
+  if (name === 'heatmap') renderHeatmap();
+}
+
+function renderBlindSpot() {
+  const scored = db.map(p => ({...p, bss: blindSpotScore(p)})).filter(p=>p.bss!==null).sort((a,b)=>b.bss-a.bss);
+  const el = document.getElementById('disc-blindspot');
+  el.innerHTML = `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:800;margin-bottom:6px;">Civic Blind Spot Score</h3>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:16px;font-style:italic;">0–5 score per county. One point for each missing: resident coverage, equity language, high-risk domain callouts, public accountability, governance body beyond IT.</p>
+  ${scored.length === 0 ? '<p class="empty-state">No counties analyzed yet.</p>' :
+    scored.map(p => {
+      const pips = [0,1,2,3,4].map(i=>`<div class="bss-pip${i<p.bss?' on':''}"></div>`).join('');
+      return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="openDetailFromTimeline('${p.fips}')">
+        <div style="width:140px;font-family:Syne,sans-serif;font-size:11px;font-weight:600;">${p.county_name}, ${p.state}</div>
+        <div class="bss-bar">${pips}</div>
+        <div style="font-family:Syne,sans-serif;font-size:11px;font-weight:700;color:${bssColor(p.bss)}">${p.bss}/5</div>
+      </div>`;
+    }).join('')
+  }`;
+}
+
+function renderGovGap() {
+  const gaps = [
+    {label:'Law enforcement carve-out', counties: db.filter(p=>(p.bottom_line||'').toLowerCase().includes('carve')||(p.key_prohibitions||'').toLowerCase().includes('carve'))},
+    {label:'No resident-facing coverage', counties: db.filter(p=>p.posture && residentFacingTier(p) === 'Employee-only')},
+    {label:'No equity language', counties: db.filter(p=>p.posture && (!p.equity_bias_language || p.equity_bias_language.toLowerCase()==='none' || !p.equity_bias_language.trim()))},
+    {label:'No high-risk domains named', counties: db.filter(p=>p.posture && (!p.high_risk_domains||!p.high_risk_domains.trim()))},
+    {label:'No public accountability', counties: db.filter(p=>p.posture && !(p.accountability||'').toLowerCase().includes('public') && !(p.accountability||'').toLowerCase().includes('website'))},
+  ];
+  document.getElementById('disc-govgap').innerHTML = `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:800;margin-bottom:16px;">Governance Gap Analysis</h3>` +
+    gaps.map(g => `<div style="margin-bottom:18px;">
+      <div style="font-family:Syne,sans-serif;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${g.label} (${g.counties.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${g.counties.map(p=>
+        `<span class="tag" style="background:var(--surface);border:1px solid var(--border);cursor:pointer;" onclick="openDetailFromTimeline('${p.fips}')">${p.county_name}</span>`
+      ).join('')||'<span style="font-size:12px;color:var(--muted);font-style:italic">None identified yet</span>'}</div>
+    </div>`).join('');
+}
+
+function renderWave() {
+  const dated = db.filter(p=>p.adoption_date && p.adoption_date!=='not listed').sort((a,b)=>a.adoption_date.localeCompare(b.adoption_date));
+  const el = document.getElementById('disc-wave');
+  if (!dated.length) { el.innerHTML = '<p class="empty-state">No adoption dates available yet.</p>'; return; }
+
+  let html = `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:800;margin-bottom:6px;">Adoption Wave</h3>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:16px;font-style:italic;">Policies in chronological order — shows the spread of AI governance over time.</p>`;
+
+  let running = 0;
+  const byMonth = {};
+  dated.forEach(p => {
+    const m = p.adoption_date.slice(0,7);
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(p);
+  });
+
+  Object.entries(byMonth).sort().forEach(([month, policies]) => {
+    running += policies.length;
+    html += `<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
+      <div style="font-family:Syne,sans-serif;font-size:10px;font-weight:600;color:var(--muted);min-width:70px;padding-top:2px;">${month}</div>
+      <div style="flex:1">
+        ${policies.map(p=>`<div style="font-family:Syne,sans-serif;font-size:11px;font-weight:600;margin-bottom:2px;cursor:pointer;" onclick="openDetailFromTimeline('${p.fips}')">${p.county_name}, ${p.state}</div>`).join('')}
+      </div>
+      <div style="font-family:Syne,sans-serif;font-size:10px;color:var(--muted);padding-top:2px;">${running} total</div>
+    </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function renderSimilar() {
+  const el = document.getElementById('disc-similar');
+  const analyzed = db.filter(p => p.posture);
+  if (!analyzed.length) { el.innerHTML = '<p class="empty-state">No analyzed counties yet.</p>'; return; }
+
+  function similarity(a, b) {
+    let score = 0;
+    if (a.posture && a.posture === b.posture) score += 3;
+    if (a.policy_type && a.policy_type === b.policy_type) score += 2;
+    const ae = !a.equity_bias_language || a.equity_bias_language.toLowerCase()==='none';
+    const be = !b.equity_bias_language || b.equity_bias_language.toLowerCase()==='none';
+    if (ae === be) score += 1;
+    const ar = residentFacingTier(a) === 'Resident-facing';
+    const br = residentFacingTier(b) === 'Resident-facing';
+    if (ar === br) score += 2;
+    return score;
+  }
+
+  el.innerHTML = `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:800;margin-bottom:6px;">Most Similar County Finder</h3>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:14px;font-style:italic;">Select a county to find the 3 most similar policies based on posture, type, equity, and resident-facing coverage.</p>
+  <select id="sim-select" style="font-family:Syne,sans-serif;font-size:11px;padding:6px 8px;border:1px solid var(--border);background:var(--surface);width:300px;" onchange="showSimilar(this.value)">
+    <option value="">— select a county —</option>
+    ${analyzed.map(p=>`<option value="${p.fips}">${p.county_name}, ${p.state}</option>`).join('')}
+  </select>
+  <div id="sim-results" style="margin-top:14px;"></div>`;
+}
+
+window.showSimilar = function(fips) {
+  if (!fips) return;
+  const base = getPolicyByFips(fips);
+  const others = db.filter(p => p.fips !== fips && p.posture);
+  const ranked = others.map(p => ({...p, sim: similarity_score(base, p)})).sort((a,b)=>b.sim-a.sim).slice(0,3);
+  function similarity_score(a,b) {
+    let s=0;
+    if(a.posture===b.posture) s+=3;
+    if(a.policy_type===b.policy_type) s+=2;
+    const ae=!a.equity_bias_language||a.equity_bias_language.toLowerCase()==='none';
+    const be=!b.equity_bias_language||b.equity_bias_language.toLowerCase()==='none';
+    if(ae===be) s+=1;
+    const ar=residentFacingTier(a) === 'Resident-facing';
+    const br=residentFacingTier(b) === 'Resident-facing';
+    if(ar===br) s+=2;
+    return s;
+  }
+  document.getElementById('sim-results').innerHTML = ranked.map(p =>
+    `<div style="padding:10px;background:var(--surface);border:1px solid var(--border);margin-bottom:8px;cursor:pointer;" onclick="openDetailFromTimeline('${p.fips}')">
+      <div style="font-family:Syne,sans-serif;font-size:12px;font-weight:700;">${p.county_name}, ${p.state}</div>
+      <div style="font-family:Syne,sans-serif;font-size:10px;color:var(--muted);margin-top:3px;">Similarity: ${p.sim}/8 · ${p.posture||'—'}</div>
+      <div style="font-size:12px;font-style:italic;margin-top:4px;color:var(--muted)">${p.bottom_line||''}</div>
+    </div>`
+  ).join('');
+};
+
+function renderHeatmap() {
+  const fields = FIELDS_DISPLAY.map(f => f.key);
+  const labels = Object.fromEntries(FIELDS_DISPLAY.map(f=>[f.key,f.label]));
+  const analyzed = db.filter(p => p.posture || p.policy_type || p.bottom_line);
+  if (!analyzed.length) { document.getElementById('disc-heatmap').innerHTML = '<p class="empty-state">No analyzed counties yet.</p>'; return; }
+
+  const emptyCounts = fields.map(f => ({
+    field: f, label: labels[f],
+    empty: analyzed.filter(p => !p[f] || p[f].trim()==='' || p[f]==='not listed').length,
+    total: analyzed.length
+  })).sort((a,b)=>b.empty-a.empty);
+
+  document.getElementById('disc-heatmap').innerHTML = `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:800;margin-bottom:6px;">Field Completeness Heatmap</h3>
+  <p style="font-size:12px;color:var(--muted);margin-bottom:16px;font-style:italic;">Which fields are most commonly empty or missing across ${analyzed.length} analyzed counties — a policy gap indicator.</p>` +
+  emptyCounts.map(({label, empty, total}) => {
+    const pct = Math.round(empty/total*100);
+    const color = pct>60?'#ef4444':pct>30?'#fb923c':'#22c55e';
+    return `<div class="bar-row" style="margin-bottom:8px;">
+      <div class="bar-label" style="min-width:160px;">${label}</div>
+      <div class="bar-track" style="height:10px;"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+      <div class="bar-val" style="min-width:50px;font-size:10px;">${empty}/${total} empty</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── ADD / EDIT FORM ──────────────────────────────────────────────────────────
+function renderAddForm(data) {
+  const d = data || {};
+  document.getElementById('add-inner').innerHTML = `
+  <div class="form-title">${editingFips ? 'Edit Policy' : 'Add Policy'}</div>
+  <div class="form-subtitle">${editingFips ? 'Update the analyzed fields below.' : 'Add a new county policy or select an existing county to enrich with analyzed data.'}</div>
+  <div class="form-grid">
+    <div class="f-field">
+      <label class="f-label">FIPS Code *</label>
+      <input class="f-input" id="f-fips" value="${d.fips||''}" placeholder="e.g. 06041" ${editingFips?'readonly':''}>
+    </div>
+    <div class="f-field">
+      <label class="f-label">County Name *</label>
+      <input class="f-input" id="f-county_name" value="${d.county_name||''}" placeholder="e.g. Marin">
+    </div>
+    <div class="f-field">
+      <label class="f-label">State *</label>
+      <input class="f-input" id="f-state" value="${d.state||''}" placeholder="e.g. California">
+    </div>
+    <div class="f-field">
+      <label class="f-label">Adoption Date</label>
+      <input class="f-input" id="f-adoption_date" value="${d.adoption_date||''}" placeholder="YYYY-MM-DD or not listed">
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Policy Title</label>
+      <input class="f-input" id="f-title" value="${d.title||''}" placeholder="Official document title">
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Source URL</label>
+      <input class="f-input" id="f-url" value="${d.url||''}" placeholder="https://...">
+    </div>
+    <div class="f-field">
+      <label class="f-label">Policy Type</label>
+      <select class="f-select" id="f-policy_type">
+        <option value="">— select —</option>
+        ${POLICY_TYPE_OPTIONS.map(o=>`<option value="${o}"${d.policy_type===o?' selected':''}>${o}</option>`).join('')}
+      </select>
+    </div>
+    <div class="f-field">
+      <label class="f-label">Posture</label>
+      <select class="f-select" id="f-posture">
+        <option value="">— select —</option>
+        ${POSTURE_OPTIONS.map(o=>`<option value="${o}"${d.posture===o?' selected':''}>${o}</option>`).join('')}
+      </select>
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Posture Notes</label>
+      <input class="f-input" id="f-posture_notes" value="${d.posture_notes||''}" placeholder="Qualifying notes on posture">
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Coverage</label>
+      <textarea class="f-textarea" id="f-coverage" placeholder="Note resident-facing services and automated decisions affecting constituents">${d.coverage||''}</textarea>
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Key Prohibitions</label>
+      <textarea class="f-textarea" id="f-key_prohibitions">${d.key_prohibitions||''}</textarea>
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Key Requirements</label>
+      <textarea class="f-textarea" id="f-key_requirements">${d.key_requirements||''}</textarea>
+    </div>
+    <div class="f-field full">
+      <label class="f-label">High-Risk Domains</label>
+      <input class="f-input" id="f-high_risk_domains" value="${d.high_risk_domains||''}" placeholder="Elections, Law Enforcement, Benefits, Health, HR, Legal (comma-separated)">
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Equity / Bias Language</label>
+      <textarea class="f-textarea" id="f-equity_bias_language" placeholder='If substantive describe specifically; if none write "None"'>${d.equity_bias_language||''}</textarea>
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Accountability</label>
+      <textarea class="f-textarea" id="f-accountability">${d.accountability||''}</textarea>
+    </div>
+    <div class="f-field full">
+      <label class="f-label">Bottom Line</label>
+      <textarea class="f-textarea" id="f-bottom_line" style="min-height:80px;" placeholder="2–3 sentences: what makes this policy distinctive for civic AI purposes. Flag the single most important finding.">${d.bottom_line||''}</textarea>
+    </div>
+    <div class="f-field full" style="display:flex;gap:8px;padding-top:4px;">
+      <button class="btn btn-accent" onclick="saveForm()">Save Policy</button>
+      ${editingFips ? `<button class="btn btn-ghost" onclick="cancelEdit()">Cancel</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function openEditForm(fips) {
+  editingFips = fips;
+  const p = getPolicyByFips(fips);
+  switchView('add');
+  setTimeout(() => renderAddForm(p), 50);
+}
+
+function cancelEdit() {
+  editingFips = null;
+  renderAddForm();
+}
+
+function saveForm() {
+  const get = id => document.getElementById(id)?.value?.trim()||'';
+  const fips = get('f-fips');
+  if (!fips) { alert('FIPS code is required.'); return; }
+
+  const entry = {
+    fips, county_name: get('f-county_name'), state: get('f-state'),
+    title: get('f-title'), url: get('f-url'),
+    adoption_date: get('f-adoption_date'), policy_type: get('f-policy_type'),
+    posture: get('f-posture'), posture_notes: get('f-posture_notes'),
+    coverage: get('f-coverage'), key_prohibitions: get('f-key_prohibitions'),
+    key_requirements: get('f-key_requirements'), high_risk_domains: get('f-high_risk_domains'),
+    equity_bias_language: get('f-equity_bias_language'),
+    accountability: get('f-accountability'), bottom_line: get('f-bottom_line'),
+  };
+
+  const idx = db.findIndex(p => p.fips === fips);
+  if (idx >= 0) db[idx] = {...db[idx], ...entry};
+  else db.push(entry);
+
+  saveDB();
+  updateMapColors();
+  updateHeaderCount();
+  editingFips = null;
+
+  // Show confirmation
+  const notice = document.createElement('div');
+  notice.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1a1814;color:#f5f3ee;font-family:Syne,sans-serif;font-size:11px;font-weight:700;padding:10px 16px;z-index:9999;letter-spacing:.05em;';
+  notice.textContent = `✓ Saved: ${entry.county_name}, ${entry.state}`;
+  document.body.appendChild(notice);
+  setTimeout(() => notice.remove(), 3000);
+
+  renderAddForm();
+}
+
+// ─── EXPORT ───────────────────────────────────────────────────────────────────
+function exportTSV() {
+  const fields = ['fips','county_name','state','title','url','adoption_date','policy_type','posture','posture_notes','coverage','key_prohibitions','key_requirements','high_risk_domains','equity_bias_language','accountability','bottom_line'];
+  const rows = [fields.join('\t'), ...db.map(p => fields.map(f=>String(p[f]||'').replace(/\t/g,' ')).join('\t'))];
+  downloadText(rows.join('\n'), 'civic_ai_policies.tsv');
+}
+
+function downloadText(text, filename) {
+  const a = document.createElement('a');
+  a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+  a.download = filename;
+  a.click();
+}
+
+// ─── HEADER COUNT ─────────────────────────────────────────────────────────────
+function updateHeaderCount() {
+  const analyzed = db.filter(p => p.posture || p.policy_type).length;
+  document.getElementById('h-count').textContent = `${db.length} counties tracked · ${analyzed} analyzed`;
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+loadDB();
+updateHeaderCount();
+initMap();
+</script>
+</body>
+</html>
